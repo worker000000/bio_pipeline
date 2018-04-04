@@ -11,9 +11,29 @@ from multiprocessing import cpu_count
 from multiprocessing import Pool
 # from multiprocessing.dummy import Pool as ThreadPool
 
+meminfo = open('/proc/meminfo').read()
+matched = re.search(r'^MemTotal:\s+(\d+)', meminfo)
+sys_mem = int(int(matched.groups()[0])/1024/1024)
+sys_core = cpu_count()
 
 def init_worker():
     signal.signal(signal.SIGINT, signal.SIG_IGN)
+
+def return_cmd(cmd,print_only = False):
+    try:
+        if cmd:
+            if print_only:
+                print("===================================================\n%s\n" % cmd)
+                return None
+            else:
+                tmp = os.popen(cmd).readlines()
+                return [line.strip() for line in tmp]
+        else:
+            raise Exception("cmd is None")
+    except Exception as e:
+        print(e)
+        return None
+
 
 def read_csv(csv_file, delimiter=",", encoding="utf-8"):
     with open(csv_file, encoding = encoding) as csv_handle:
@@ -59,38 +79,52 @@ def run_cmd(id, procedure, cmd, target, test, run_record, log = None):
         print("====== %s -=======" % ex)
         raise ex
 
-class Pipeline():
+class Pipeline(object):
     ''' pipeline to run '''
+    def __del__(self):
+        if self.pool:
+            self.pool.terminate()
+
     def __init__(self, id, test = 1, run_record = None ):
         self.id         = id
         self.test       = test
         self.run_record = run_record
         self.pipeline   = collections.OrderedDict()
 
-    def add_cmd(self, procedure, cmd, target, log = None):
-        if self.pipeline.get(procedure, None):
-            self.pipeline[procedure].append([cmd, target, log])
+    def append(self, procedure, cmd, target = None, log = None):
+        if target is None:
+            target = ""
+        index = "%s:%s" % (procedure, target)
+        if self.pipeline.get(index, None):
+            self.pipeline[index].append([cmd, target, log])
         else:
-            self.pipeline[procedure] = [[cmd, target, log]]
+            self.pipeline[index] = [[cmd, target, log]]
 
-    def run(self):
-        for procedure in self.pipeline:
-            cmd_tar_logs = self.pipeline[procedure]
-
+    def run_pipeline(self):
+        for index in self.pipeline:
+            cmd_tar_logs = self.pipeline[index]
             async_cnt = len(cmd_tar_logs)
-            pool = Pool(async_cnt, init_worker,  maxtasksperchild = async_cnt)
+            if async_cnt > sys_core:
+                async_cnt = sys_core
+            self.pool = Pool(async_cnt, init_worker,  maxtasksperchild = async_cnt)
             for cmd_tar_log in cmd_tar_logs:
                 cmd, target, log = cmd_tar_log
-                pool.apply_async(run_cmd,(self.id, procedure, cmd, target, self.test, self.run_record, log))
-            pool.close()
-            pool.join()
-            pool.terminate()
+                procedure = index.split(":")[0]
+                self.pool.apply_async(run_cmd,(self.id, procedure, cmd, target, self.test, self.run_record, log))
+            self.pool.close()
+            self.pool.join()
+            self.pool.terminate()
 
-def get_sys_mem_core():
-    meminfo = open('/proc/meminfo').read()
-    matched = re.search(r'^MemTotal:\s+(\d+)', meminfo)
-    # meminfo.close()
-    return (int(int(matched.groups()[0])/1024/1024), cpu_count())
+    def print_pipeline(self):
+        for index in self.pipeline:
+            cmd_tar_logs = self.pipeline[index]
+            for cmd_tar_log in cmd_tar_logs:
+                cmd, target, log = cmd_tar_log
+                print("===============================\n%s\n\n%s" % (index, cmd ))
+
+    def terminate(self):
+        if self.pool:
+            self.pool.terminate()
 
 def mkdir(*paths):
     for path in paths:
@@ -104,7 +138,7 @@ def mkcsv(file,*lst):
         pass
     else:
         if lst:
-            line = ".".join(lst)
+            line = ",".join(lst)
             os.system("echo %s>%s" %(line,file))
         else:
             os.system("touch %s" % file)
