@@ -9,7 +9,6 @@ import datetime
 import subprocess
 from multiprocessing import cpu_count
 from multiprocessing import Pool
-# from multiprocessing.dummy import Pool as ThreadPool
 
 meminfo = open('/proc/meminfo').read()
 matched = re.search(r'^MemTotal:\s+(\d+)', meminfo)
@@ -34,7 +33,6 @@ def return_cmd(cmd,print_only = False):
         print(e)
         return None
 
-
 def read_csv(csv_file, delimiter=",", encoding="utf-8"):
     with open(csv_file, encoding = encoding) as csv_handle:
         csv_reader = csv.reader(csv_handle,delimiter = delimiter)
@@ -44,7 +42,6 @@ def write_2csv(csv_file, *lst):
     if lst:
         line = ",".join(lst)
         os.system("echo %s >> %s" % (line, csv_file))
-
 
 def run_cmd(id, procedure, cmd, target, test, run_record, log = None):
     run_array = []
@@ -91,25 +88,29 @@ class Pipeline(object):
         self.run_record = run_record
         self.pipeline   = collections.OrderedDict()
 
-    def append(self, procedure, cmd, target = None, log = None):
-        if target is None:
-            target = ""
-        index = "%s:%s" % (procedure, target)
-        if self.pipeline.get(index, None):
-            self.pipeline[index].append([cmd, target, log])
+    def append(self, procedure, cmd, target = None, sync = 0, log = None):
+        # 有些procedure, 是'无视'target,可以并行跑,用sync !=0 表示
+        if sync:
+            index = procedure
         else:
-            self.pipeline[index] = [[cmd, target, log]]
+            if target is None:
+                index = "%s:none" % procedure
+            else:
+                index = "%s:%s" % (procedure, target)
+        if self.pipeline.get(index, None):
+            self.pipeline[index].append([procedure, cmd, target, log])
+        else:
+            self.pipeline[index] = [[procedure, cmd, target, log]]
 
     def run_pipeline(self):
         for index in self.pipeline:
-            cmd_tar_logs = self.pipeline[index]
-            async_cnt = len(cmd_tar_logs)
+            pipelines = self.pipeline[index]
+            async_cnt = len(pipelines)
             if async_cnt > sys_core:
                 async_cnt = sys_core
             self.pool = Pool(async_cnt, init_worker,  maxtasksperchild = async_cnt)
-            for cmd_tar_log in cmd_tar_logs:
-                cmd, target, log = cmd_tar_log
-                procedure = index.split(":")[0]
+            for pipeline in pipelines:
+                procedure, cmd, target, log = pipeline
                 self.pool.apply_async(run_cmd,(self.id, procedure, cmd, target, self.test, self.run_record, log))
             self.pool.close()
             self.pool.join()
