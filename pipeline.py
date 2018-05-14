@@ -1,6 +1,7 @@
 #coding:utf8
 '''Author leoatchina'''
 import os
+import traceback
 import collections
 import signal
 import csv
@@ -73,30 +74,32 @@ def run_cmd(id, procedure, cmd, target, test, run_record, log = None):
         end_time   = end_time.strftime("%Y-%m-%d %H:%M:%S")
         print(index, "error at", end_time )
     except Exception as ex:
-        print("====== %s -=======" % ex)
+        traceback.print_exc()
         raise ex
 
 class Pipeline(object):
     ''' pipeline to run '''
     def __del__(self):
-        if self.pool:
-            self.pool.terminate()
+        self.pool.terminate()
 
     def __init__(self, id, test = 1, run_record = None ):
         self.id         = id
         self.test       = test
         self.run_record = run_record
         self.pipeline   = collections.OrderedDict()
+        self.pool       = Pool(1)
+        self.pool.terminate()
 
-    def append(self, procedure, cmd, target = None, sync = 0, log = None):
+    def append(self, procedure, cmd, target = None, log = None, sync = 0):
         # 有些procedure, 是'无视'target,可以并行跑,用sync !=0 表示
+        # 其实这样冗余了，只要不写target，在一个procedure里，不同的cmd在target没有指明，或者指向一致的情况下本来就是并行的
+        # 但增加了也好
         if sync:
             index = procedure
         else:
             if target is None:
-                index = "%s:none" % procedure
-            else:
-                index = "%s:%s" % (procedure, target)
+                target = ""
+            index = "%s:%s" % (procedure, target)
         if self.pipeline.get(index, None):
             self.pipeline[index].append([procedure, cmd, target, log])
         else:
@@ -104,13 +107,13 @@ class Pipeline(object):
 
     def run_pipeline(self):
         for index in self.pipeline:
-            pipelines = self.pipeline[index]
-            async_cnt = len(pipelines)
+            each_procedure = self.pipeline[index]
+            async_cnt = len(each_procedure)
             if async_cnt > sys_core:
                 async_cnt = sys_core
             self.pool = Pool(async_cnt, init_worker,  maxtasksperchild = async_cnt)
-            for pipeline in pipelines:
-                procedure, cmd, target, log = pipeline
+            for work in each_procedure:
+                procedure, cmd, target, log = work
                 self.pool.apply_async(run_cmd,(self.id, procedure, cmd, target, self.test, self.run_record, log))
             self.pool.close()
             self.pool.join()
@@ -124,8 +127,7 @@ class Pipeline(object):
                 print("===============================\n%s\n\n%s" % (index, cmd ))
 
     def terminate(self):
-        if self.pool:
-            self.pool.terminate()
+        self.pool.terminate()
 
 def mkdir(*paths):
     for path in paths:
@@ -141,5 +143,3 @@ def mkcsv(file,*lst):
         if lst:
             line = ",".join(lst)
             os.system("echo %s>%s" %(line,file))
-        else:
-            os.system("touch %s" % file)
