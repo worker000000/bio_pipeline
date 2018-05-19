@@ -34,8 +34,8 @@ def return_cmd(cmd,print_only = False):
         print(e)
         return None
 
-def read_csv(csv_file, delimiter=",", encoding="utf-8"):
-    with open(csv_file, encoding = encoding) as csv_handle:
+def read_csv(csv_file, delimiter=","):
+    with open(csv_file) as csv_handle:
         csv_reader = csv.reader(csv_handle,delimiter = delimiter)
         return [i for i in csv_reader]
 
@@ -46,14 +46,16 @@ def write_2csv(csv_file, *lst):
 
 def run_cmd(id, procedure, cmd, target, test, run_record, log = None):
     run_array = []
-    if run_record:
-        for line in read_csv(run_record):
-            run_array.append("%s:%s:%s" % (line[0], line[1], line[2]))
     try:
+        if run_record:
+            for line in read_csv(run_record):
+                run_array.append("%s:%s:%s" % (line[0], line[1], line[2]))
         index = "%s:%s:%s" % (id, procedure, target)
         start_time = datetime.datetime.now()
         now        = start_time.strftime("%Y-%m-%d %H:%M:%S")
-        if not index in run_array:
+        if index in run_array:
+            pass
+        else:
             print("================= %s ====================\n%s\n" % (now, cmd))
             if not test:
                 if log:
@@ -82,10 +84,12 @@ class Pipeline(object):
     def __del__(self):
         self.pool.terminate()
 
-    def __init__(self, id, test = 1, run_record = None ):
+    def __init__(self, id, test = 1, run_record = None):
         self.id         = id
         self.test       = test
         self.run_record = run_record
+        if run_record and (not os.path.exists(self.run_record)):
+            os.system("echo 'id,procedure,target,start_time,end_time,cost_time'>> %s" % self.run_record)
         self.pipeline   = collections.OrderedDict()
         self.pool       = Pool(1)
         self.pool.terminate()
@@ -98,7 +102,7 @@ class Pipeline(object):
             index = procedure
         else:
             if target is None:
-                target = ""
+                target = "none"
             index = "%s:%s" % (procedure, target)
         if self.pipeline.get(index, None):
             self.pipeline[index].append([procedure, cmd, target, log])
@@ -107,12 +111,12 @@ class Pipeline(object):
 
     def run_pipeline(self):
         for index in self.pipeline:
-            each_procedure = self.pipeline[index]
-            async_cnt = len(each_procedure)
+            each_pipeline = self.pipeline[index]
+            async_cnt = len(each_pipeline)
             if async_cnt > sys_core:
                 async_cnt = sys_core
             self.pool = Pool(async_cnt, init_worker,  maxtasksperchild = async_cnt)
-            for work in each_procedure:
+            for work in each_pipeline:
                 procedure, cmd, target, log = work
                 self.pool.apply_async(run_cmd,(self.id, procedure, cmd, target, self.test, self.run_record, log))
             self.pool.close()
@@ -121,9 +125,9 @@ class Pipeline(object):
 
     def print_pipeline(self):
         for index in self.pipeline:
-            cmd_tar_logs = self.pipeline[index]
-            for cmd_tar_log in cmd_tar_logs:
-                cmd, target, log = cmd_tar_log
+            each_pipeline = self.pipeline[index]
+            for work in each_pipeline:
+                _, cmd, _, _ = work
                 print("===============================\n%s\n\n%s" % (index, cmd ))
 
     def terminate(self):
