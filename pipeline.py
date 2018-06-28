@@ -44,7 +44,7 @@ def write_2csv(csv_file, *lst):
         line = ",".join(lst)
         os.system("echo %s >> %s" % (line, csv_file))
 
-def run_cmd(id, procedure, cmd, target, test, run_record, log = None):
+def run_cmd(id, procedure, cmd, target, run_record, log = None):
     run_array = []
     try:
         if run_record:
@@ -57,20 +57,19 @@ def run_cmd(id, procedure, cmd, target, test, run_record, log = None):
             pass
         else:
             print("================= %s ====================\n%s\n" % (now, cmd))
-            if not test:
-                if log:
-                    with open(log,'wb') as F:
-                        p = subprocess.Popen(cmd, stdout = F, stderr = F, shell = True)
-                        p.wait()
-                else:
-                    subprocess.check_output(cmd, shell = True)
-                end_time   = datetime.datetime.now()
-                cost_time  = str(end_time - start_time)
-                start_time = start_time.strftime("%Y-%m-%d %H:%M:%S")
-                end_time   = end_time.strftime("%Y-%m-%d %H:%M:%S")
-                if run_record:
-                    write_2csv(run_record, id, procedure, target, start_time, end_time, cost_time)
-                print(index, "finished at", end_time )
+            if log:
+                with open(log,'wb') as F:
+                    p = subprocess.Popen(cmd, stdout = F, stderr = F, shell = True)
+                    p.wait()
+            else:
+                subprocess.check_output(cmd, shell = True)
+            end_time   = datetime.datetime.now()
+            cost_time  = str(end_time - start_time)
+            start_time = start_time.strftime("%Y-%m-%d %H:%M:%S")
+            end_time   = end_time.strftime("%Y-%m-%d %H:%M:%S")
+            if run_record:
+                write_2csv(run_record, id, procedure, target, start_time, end_time, cost_time)
+            print(index, "finished at", end_time )
     except subprocess.CalledProcessError as e:
         end_time   = datetime.datetime.now()
         end_time   = end_time.strftime("%Y-%m-%d %H:%M:%S")
@@ -84,9 +83,8 @@ class Pipeline(object):
     def __del__(self):
         self.pool.terminate()
 
-    def __init__(self, id, test = 1, run_record = None, sync_cnt = sys_core):
+    def __init__(self, id, run_record = None, sync_cnt = sys_core):
         self.id         = id
-        self.test       = test
         self.run_record = run_record
         if run_record and (not os.path.exists(self.run_record)):
             os.system("echo 'id,procedure,target,start_time,end_time,cost_time'>> %s" % self.run_record)
@@ -119,7 +117,7 @@ class Pipeline(object):
             self.pool = Pool(sync_cnt, init_worker,  maxtasksperchild = sync_cnt)
             for work in each_pipeline:
                 procedure, cmd, target, log = work
-                self.pool.apply_async(run_cmd,(self.id, procedure, cmd, target, self.test, self.run_record, log))
+                self.pool.apply_async(run_cmd,(self.id, procedure, cmd, target, self.run_record, log))
             self.pool.close()
             self.pool.join()
             self.pool.terminate()
