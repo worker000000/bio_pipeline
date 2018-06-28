@@ -84,13 +84,14 @@ class Pipeline(object):
     def __del__(self):
         self.pool.terminate()
 
-    def __init__(self, id, test = 1, run_record = None):
+    def __init__(self, id, test = 1, run_record = None, sync_cnt = sys_core):
         self.id         = id
         self.test       = test
         self.run_record = run_record
         if run_record and (not os.path.exists(self.run_record)):
             os.system("echo 'id,procedure,target,start_time,end_time,cost_time'>> %s" % self.run_record)
         self.pipeline   = collections.OrderedDict()
+        self.sync_cnt   = sync_cnt
         self.pool       = Pool(1)
         self.pool.terminate()
 
@@ -112,10 +113,10 @@ class Pipeline(object):
     def run_pipeline(self):
         for index in self.pipeline:
             each_pipeline = self.pipeline[index]
-            async_cnt = len(each_pipeline)
-            if async_cnt > sys_core:
-                async_cnt = sys_core
-            self.pool = Pool(async_cnt, init_worker,  maxtasksperchild = async_cnt)
+            sync_cnt = len(each_pipeline)
+            if sync_cnt > self.sync_cnt:
+                sync_cnt = self.sync_cnt
+            self.pool = Pool(sync_cnt, init_worker,  maxtasksperchild = sync_cnt)
             for work in each_pipeline:
                 procedure, cmd, target, log = work
                 self.pool.apply_async(run_cmd,(self.id, procedure, cmd, target, self.test, self.run_record, log))
