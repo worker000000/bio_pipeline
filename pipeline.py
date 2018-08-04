@@ -44,6 +44,7 @@ def mkdirs(*paths):
 
 def write_to_csv(csv, *lst):
     if lst:
+        lst = [ i if i else "" for i in lst  ]
         line = ",".join(lst)
         os.system("echo %s >> %s" % (line, csv))
 
@@ -77,7 +78,7 @@ class Pipeline(object):
                 # skip header
                 lines = lines[1:]
                 for line in lines:
-                    id, procedure, target, start_time, end_time, cost_time = line.split(",")
+                    id, procedure, target, start_time, end_time, cost_time = line
                     index = "%s:%s:%s" % (id, procedure, target)
                     self.run_array[index] = "%s %s %s" % (start_time, end_time, cost_time)
 
@@ -150,36 +151,3 @@ class Pipeline(object):
         except Exception as ex:
             traceback.print_exc()
             raise ex
-# def run_cmd(id, procedure, cmd, target, run_csv, log = None):
-    # run_array = []
-    # try:
-        # if run_csv:
-            # for line in read_csv(run_csv):
-                # run_array.append("%s:%s:%s" % (line[0], line[1], line[2]))
-        # index = "%s:%s:%s" % (id, procedure, target)
-        # start_time = datetime.datetime.now()
-        # now        = start_time.strftime("%Y-%m-%d %H:%M:%S")
-        # if index in run_array:
-            # pass
-        # else:
-            # print("================ %s ==================\n%s\n" % (now, cmd))
-            # if log:
-                # with open(log,'wb') as F:
-                    # p = subprocess.Popen(cmd, stdout = F, stderr = F, shell = True)
-                    # p.wait()
-            # else:
-                # subprocess.check_output(cmd, shell = True)
-            # end_time   = datetime.datetime.now()
-            # cost_time  = str(end_time - start_time)
-            # start_time = start_time.strftime("%Y-%m-%d %H:%M:%S")
-            # end_time   = end_time.strftime("%Y-%m-%d %H:%M:%S")
-            # if run_csv:
-                # write_2csv(run_csv, id,procedure, target, start_time, end_time, cost_time)
-            # print(index, "finished at", end_time )
-    # except subprocess.CalledProcessError as e:
-        # end_time = datetime.datetime.now()
-        # end_time = end_time.strftime("%Y-%m-%d %H:%M:%S")
-        # print(index, "error at", end_time)
-    # except Exception as ex:
-        # traceback.print_exc()
-        # raise ex
