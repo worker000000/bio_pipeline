@@ -40,7 +40,7 @@ def mkdirs(*paths):
 
 def write_to_csv(csv, *lst):
     if lst:
-        lst = [ i if i else "" for i in lst  ]
+        lst = [ i if len(i) else "" for i in lst  ]
         line = ",".join(lst)
         os.system("echo %s >> %s" % (line, csv))
 
@@ -79,14 +79,14 @@ class Pipeline(object):
                     self.run_array[index] = "%s %s %s" % (start_time, end_time, cost_time)
 
     def append(self, id, procedure, cmd, target = None, log = None, run_sync = 0):
-        # id 有可能会不同
-        # 有些procedure, 是'无视'target,可以并行跑,用run_sync !=0 表示
+        # 有些procedure, 是'无视'target,可以并行跑
         # 如在一个procedure里，没有指明target，或者指向一致的情况下本来就是并行的
-        # 增加这个参数, 可以在target不一致的情况下,并行运行.
+        # 增加run_sync, 可以在target不一致的情况下,并行运行.
+        # 通过构建index的方式, 一个pipeline是一个list,可以并行执行
         if run_sync:
             index = "%s:%s:" % (id, procedure)
         else:
-            if target is None or not len(target.replace(" ", "")):
+            if not len(target):
                 index = "%s:%s:" % (id, procedure)
             else:
                 index = "%s:%s:%s" % (id, procedure, target)
@@ -122,7 +122,7 @@ class Pipeline(object):
         try:
             start_time = datetime.datetime.now()
             now        = start_time.strftime("%Y-%m-%d %H:%M:%S")
-            if target is None or not len(target.replace(" ", "")):
+            if not len(target):
                 target = ""
             ruuned     = "%s:%s:%s" % (id, procedure, target)
             if ruuned in run_array:
