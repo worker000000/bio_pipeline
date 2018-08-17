@@ -21,15 +21,11 @@ def init_worker():
     signal.signal(signal.SIGINT, signal.SIG_IGN)
 
 
-def return_cmd(cmd, print_only = False):
+def return_cmd(cmd):
     try:
         if cmd:
-            if print_only:
-                print("==========================================\n%s\n" % cmd)
-                return None
-            else:
-                tmp = os.popen(cmd).readlines()
-                return [line.strip() for line in tmp]
+            tmp = os.popen(cmd).readlines()
+            return [line.strip() for line in tmp]
         else:
             raise Exception("cmd is None")
     except Exception as e:
@@ -60,7 +56,7 @@ class Pipeline(object):
     def __del__(self):
         self.pool.terminate()
 
-    def __init__(self, run_csv = None, test = 1, sync_cnt = sys_core):
+    def __init__(self, run_csv = None, sync_cnt = 2, test = 1):
         # run_array to record run status
         # for a run_csv, may be there are different ids
         self.run_csv   = run_csv
@@ -68,7 +64,7 @@ class Pipeline(object):
         self.test      = test
         self.sync_cnt  = sync_cnt
         self.pipelines = collections.OrderedDict()
-        self.pool      = Pool(1)
+        self.pool      = Pool(self.sync_cnt)
         self.pool.terminate()
         if self.run_csv:
             if not os.path.exists(self.run_csv):
@@ -85,12 +81,12 @@ class Pipeline(object):
     def append(self, id, procedure, cmd, target = None, log = None, run_sync = 0):
         # id 有可能会不同
         # 有些procedure, 是'无视'target,可以并行跑,用run_sync !=0 表示
-        # 其实在一个procedure里，没有指明target，或者指向一致的情况下本来就是并行的
-        # 但增加这个参数, 更明确.
+        # 如在一个procedure里，没有指明target，或者指向一致的情况下本来就是并行的
+        # 增加这个参数, 可以在target不一致的情况下,并行运行.
         if run_sync:
             index = "%s:%s:" % (id, procedure)
         else:
-            if target is None:
+            if target is None or not len(target.replace(" ", "")):
                 index = "%s:%s:" % (id, procedure)
             else:
                 index = "%s:%s:%s" % (id, procedure, target)
@@ -116,17 +112,20 @@ class Pipeline(object):
             self.pool = Pool(sync_cnt, init_worker, maxtasksperchild = sync_cnt)
             for each in pipeline:
                 id, procedure, cmd, target, log = each
-                self.pool.apply_async(Pipeline.run_cmd, args = (index, id, procedure, cmd, target, log, self.test, self.run_array, self.run_csv))
+                self.pool.apply_async(Pipeline.run_cmd, args = (id, procedure, cmd, target, log, self.test, self.run_array, self.run_csv))
             self.pool.close()
             self.pool.join()
             self.pool.terminate()
 
     @staticmethod
-    def run_cmd(index, id, procedure, cmd, target, log, test, run_array, run_csv):
+    def run_cmd(id, procedure, cmd, target, log, test, run_array, run_csv):
         try:
             start_time = datetime.datetime.now()
             now        = start_time.strftime("%Y-%m-%d %H:%M:%S")
-            if index in run_array:
+            if target is None or not len(target.replace(" ", "")):
+                target = ""
+            ruuned     = "%s:%s:%s" % (id, procedure, target)
+            if ruuned in run_array:
                 pass
             else:
                 print("================ %s ===============\n%s\n" % (now, cmd))
