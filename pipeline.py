@@ -142,11 +142,11 @@ class Pipeline(object):
                     end_time_reform   = end_time.strftime("%Y-%m-%d %H:%M:%S")
                     if run_csv:
                         write_to_csv(run_csv, ID, procedure, target, start_time_reform, end_time_reform, cost_time_reform)
-                    print(index, "finished at", end_time_reform )
+                    print(runned, "finished at", end_time_reform )
         except subprocess.CalledProcessError as e:
-            end_time = datetime.datetime.now()
-            end_time = end_time.strftime("%Y-%m-%d %H:%M:%S")
-            print(index, "error at", end_time)
+            end_time        = datetime.datetime.now()
+            end_time_reform = end_time.strftime("%Y-%m-%d %H:%M:%S")
+            print(runned, "error at", end_time_reform)
         except Exception as ex:
             traceback.print_exc()
             raise ex
