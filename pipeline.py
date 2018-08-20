@@ -124,8 +124,8 @@ class Pipeline(object):
             now        = start_time.strftime("%Y-%m-%d %H:%M:%S")
             if not len(target):
                 target = ""
-            ruuned     = "%s:%s:%s" % (ID, procedure, target)
-            if ruuned in run_array:
+            runned     = "%s:%s:%s" % (ID, procedure, target)
+            if runned in run_array:
                 pass
             else:
                 print("================ %s ===============\n%s\n" % (now, cmd))
@@ -142,11 +142,11 @@ class Pipeline(object):
                     end_time_reform   = end_time.strftime("%Y-%m-%d %H:%M:%S")
                     if run_csv:
                         write_to_csv(run_csv, ID, procedure, target, start_time_reform, end_time_reform, cost_time_reform)
-                    print(runned, "finished at", end_time_reform )
-        except subprocess.CalledProcessError as e:
+                    print(runned, "finished at", end_time_reform)
+        except subprocess.CalledProcessError as ex:
             end_time        = datetime.datetime.now()
             end_time_reform = end_time.strftime("%Y-%m-%d %H:%M:%S")
-            print(runned, "error at", end_time_reform)
+            print(runned, "error at", end_time_reform, ex)
         except Exception as ex:
             traceback.print_exc()
             raise ex
