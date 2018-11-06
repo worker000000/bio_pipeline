@@ -103,15 +103,17 @@ class Pipeline(object):
     def __del__(self):
         self.pool.terminate()
 
-    def __init__(self, run_csv = None, sync_cnt = 2, test = 1):
+    def __init__(self, run_csv = None, sync_cnt = 2, test = 1, all_sync = False):
         # run_array to record run status
         # for a run_csv, may be there are different ids
         self.run_csv   = run_csv
         self.run_array = {}
         self.test      = test
         self.sync_cnt  = sync_cnt
+        # One ID has its pipeline : pipelines[ID]
         self.pipelines = collections.OrderedDict()
-        self.pool      = Pool(self.sync_cnt)
+        self.all_sync  = all_sync
+        self.pool      = Pool(sync_cnt, init_worker, maxtasksperchild = sync_cnt)
         self.pool.terminate()
         if self.run_csv:
             if os.path.exists(self.run_csv):
@@ -120,56 +122,58 @@ class Pipeline(object):
                 lines = lines[1:]
                 for line in lines:
                     ID, procedure, target, start_time, end_time, cost_time = line[:6]
-                    index = "%s:%s:%s" % (ID, procedure, target)
-                    self.run_array[index] = "%s %s %s" % (start_time, end_time, cost_time)
+                    runned = "%s:%s:%s" % (ID, procedure, target)
+                    self.run_array[runned] = "%s %s %s" % (start_time, end_time, cost_time)
             else:
                 os.system("echo 'ID,procedure,target,start_time,end_time,cost_time' > %s" % self.run_csv)
 
     def append(self, ID, procedure, cmd, target = None, log = None, run_sync = False):
-        # 有些procedure, 是'无视'target,可以并行跑
-        # 如在一个procedure里，没有指明target，或者指向一致的情况下本来就是并行的
-        # 增加run_sync, 可以在target不一致的情况下,并行运行.
-        # 通过构建index的方式, 一个pipeline是一个list,可以并行执行
-        if run_sync:
-            index = "%s:%s:" % (ID, procedure)
+        """
+        有些procedure, 是'无视'target,可以并行跑
+        如在一个procedure里，没有指明target，或者指向一致的情况下本来就是并行的
+        增加run_sync, 可以在target不一致的情况下,并行运行.
+        """
+        if target is None or len(target.strip()) == 0 or run_sync:
+            index = procedure
         else:
-            if len(target):
-                index = "%s:%s:%s" % (ID, procedure, target)
-            else:
-                index = "%s:%s:" % (ID, procedure)
-        if self.pipelines.get(index, None):
-            self.pipelines[index].append([ID, procedure, cmd, target, log])
+            index = "%s:%s" % (procedure, target)
+        # 这里是关键，和一般的想法不同，是先考虑index，然后再考虑ID
+        if self.pipelines.get(index, None) is None:
+            self.pipelines[index] = collections.OrderedDict()
+        if self.pipelines[index].get(ID, None):
+            self.pipelines[index][ID].append([procedure, cmd, target, log])
         else:
-            self.pipelines[index] = [[ID, procedure, cmd, target, log]]
+            self.pipelines[index][ID] = [[procedure, cmd, target, log]]
 
     def print_pipeline(self):
-        for index in self.pipelines:
-            pipeline = self.pipelines[index]
-            for each in pipeline:
-                ID, procedure, cmd, target, log = each
-                print("===============================\n%s\n\n%s" % (index, cmd))
+        for ID in self.pipelines:
+            pipeline = self.pipelines[ID]
+            for index in pipeline:
+                for each in pipeline[index]:
+                    print(each)
 
     def run_pipeline(self):
+        sync_cnt = len(self.pipelines)
+        if sync_cnt > self.sync_cnt:
+            sync_cnt = self.sync_cnt
+        self.pool = Pool(sync_cnt, init_worker, maxtasksperchild = sync_cnt)
         for index in self.pipelines:
             pipeline = self.pipelines[index]
             # syn_cnt is the cnt of functions run async in a pipelines
-            sync_cnt = len(pipeline)
-            if sync_cnt > self.sync_cnt:
-                sync_cnt = self.sync_cnt
-            self.pool = Pool(sync_cnt, init_worker, maxtasksperchild = sync_cnt)
-            for each in pipeline:
-                ID, procedure, cmd, target, log = each
-                self.pool.apply_async(Pipeline.run_cmd, args = (ID, procedure, cmd, target, log, self.test, self.run_array, self.run_csv))
-            self.pool.close()
-            self.pool.join()
-            self.pool.terminate()
+            for ID in pipeline:
+                for each in pipeline[ID]:
+                    procedure, cmd, target, log = each
+                    self.pool.apply_async(Pipeline.run_cmd, args = (ID, procedure, cmd, target, log, self.test, self.run_array, self.run_csv))
+        self.pool.close()
+        self.pool.join()
+        self.pool.terminate()
 
     @staticmethod
     def run_cmd(ID, procedure, cmd, target, log, test, run_array, run_csv):
         try:
             start_time = datetime.datetime.now()
             now        = start_time.strftime("%Y-%m-%d %H:%M:%S")
-            if not len(target):
+            if target is None or len(target) == 0:
                 target = ""
             runned     = "%s:%s:%s" % (ID, procedure, target)
             if runned in run_array:
