@@ -137,13 +137,37 @@ class Pipeline(object):
             index = procedure
         else:
             index = "%s:%s" % (procedure, target)
-        # 这里是关键，和一般的想法不同，是先考虑index，然后再考虑ID
+        # 这里是关键，和一般的想法不同，是先考虑index
+        # index可以看作是不同的步骤名，比如26个dnaseq样本，可能有bwa_mem下面有25个bwa_mem
         if self.pipelines.get(index, None) is None:
-            self.pipelines[index] = collections.OrderedDict()
-        if self.pipelines[index].get(ID, None):
-            self.pipelines[index][ID].append([procedure, cmd, target, log])
+            self.pipelines[index] = [[ID, procedure, cmd, target, log]]
         else:
-            self.pipelines[index][ID] = [[procedure, cmd, target, log]]
+            self.pipelines[index].append([ID, procedure, cmd, target, log])
+
+    def run_pipeline(self):
+        sync_cnt = len(self.pipelines)
+        if sync_cnt > self.sync_cnt:
+            sync_cnt = self.sync_cnt
+        self.pool = Pool(sync_cnt, init_worker, maxtasksperchild = sync_cnt)
+        pipelines_not_empty = True
+        while pipelines_not_empty:
+            pipelines_not_empty = False
+            for index, pipeline in self.pipelines.items():
+                if pipeline is not None:
+                    if len(pipeline) > sync_cnt:
+                        to_run = pipeline[:sync_cnt]  # 取出前面几个来
+                        self.pipelines[index] = pipeline[sync_cnt + 1:]  # 后面的继续strip from head
+                        pipelines_not_empty = True
+                    else:
+                        to_run = pipeline
+                        self.pipelines[index] = None
+                    for each in to_run:
+                        ID, procedure, cmd, target, log = each
+                        self.pool.apply_async(Pipeline.run_cmd, args = (
+                            ID, procedure, cmd, target, log, self.test, self.run_array, self.run_csv))
+        self.pool.close()
+        self.pool.join()
+        self.pool.terminate()
 
     def print_pipeline(self):
         for ID in self.pipelines:
@@ -151,22 +175,6 @@ class Pipeline(object):
             for index in pipeline:
                 for each in pipeline[index]:
                     print(each)
-
-    def run_pipeline(self):
-        sync_cnt = len(self.pipelines)
-        if sync_cnt > self.sync_cnt:
-            sync_cnt = self.sync_cnt
-        self.pool = Pool(sync_cnt, init_worker, maxtasksperchild = sync_cnt)
-        for index in self.pipelines:
-            pipeline = self.pipelines[index]
-            # syn_cnt is the cnt of functions run async in a pipelines
-            for ID in pipeline:
-                for each in pipeline[ID]:
-                    procedure, cmd, target, log = each
-                    self.pool.apply_async(Pipeline.run_cmd, args = (ID, procedure, cmd, target, log, self.test, self.run_array, self.run_csv))
-        self.pool.close()
-        self.pool.join()
-        self.pool.terminate()
 
     @staticmethod
     def run_cmd(ID, procedure, cmd, target, log, test, run_array, run_csv):
