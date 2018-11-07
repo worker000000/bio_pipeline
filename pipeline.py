@@ -9,9 +9,9 @@ import re
 import datetime
 import subprocess
 import hashlib
+from collections import deque
 from multiprocessing import cpu_count
 from multiprocessing import Pool
-from collections import deque
 
 meminfo  = open('/proc/meminfo').read()
 matched  = re.search(r'^MemTotal:\s+(\d+)', meminfo)
@@ -121,6 +121,8 @@ class Pipeline(object):
                 # skip header
                 lines = lines[1:]
                 for line in lines:
+                    if len(line) > 6:
+                        line[5] = ",".join(line[5:])
                     ID, procedure, target, start_time, end_time, cost_time = line[:6]
                     if target is None or len(target.strip()) == 0:
                         target = ""
@@ -141,6 +143,8 @@ class Pipeline(object):
             index = "%s:%s" % (procedure, target)
         # 这里是关键，和一般的想法不同，是先考虑index
         # index可以看作是不同的步骤名，比如25个dnaseq样本，可能有bwa_mem下面有25个记录
+        # 这里有一个关键，不管是否「runned」，都放入到pipeline中。
+        # 否则，会有出现 应该在后面的「步骤」， 先放入pipeline的情况。
         if self.pipelines.get(index, None):
             self.pipelines[index].append((ID, procedure, cmd, target, log, record_on_error))
         else:
@@ -154,6 +158,8 @@ class Pipeline(object):
             for index, pipeline in self.pipelines.items():
                 if len(pipeline):
                     cnt = 0
+                    # cnt是为了 从一个pipeline上「挖出」sync_cnt个node来，再放入到进程池中，当然不能「挖」过头
+                    # 因为pipeline是orderd dict ，不会出现后面步骤先跑的情况
                     while cnt < self.sync_cnt and len(self.pipelines[index]):
                         node = self.pipelines[index].popleft()
                         pipelines_not_empty = True
@@ -200,8 +206,8 @@ class Pipeline(object):
             end_time        = datetime.datetime.now()
             end_time_reform = end_time.strftime("%Y-%m-%d %H:%M:%S")
             if record_on_error and run_csv:
-                print("{}:{} errored at {}, but still record".format(ID, procedure, end_time_reform))
                 write_to_csv(run_csv, ID, procedure, target, start_time_reform, end_time_reform, cost_time_reform)
+                print("{}:{} errored at {}, but still record".format(ID, procedure, end_time_reform))
             else:
                 print("{}:{} errored at {}, and not record".format(ID, procedure, end_time_reform))
         except Exception as ex:
