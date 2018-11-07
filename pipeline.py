@@ -11,6 +11,7 @@ import subprocess
 import hashlib
 from multiprocessing import cpu_count
 from multiprocessing import Pool
+from collections import deque
 
 meminfo  = open('/proc/meminfo').read()
 matched  = re.search(r'^MemTotal:\s+(\d+)', meminfo)
@@ -103,7 +104,7 @@ class Pipeline(object):
     def __del__(self):
         self.pool.terminate()
 
-    def __init__(self, run_csv = None, sync_cnt = 2, test = 1, all_sync = False):
+    def __init__(self, run_csv = None, sync_cnt = 2, test = 1):
         # run_array to record run status
         # for a run_csv, may be there are different ids
         self.run_csv   = run_csv
@@ -112,7 +113,6 @@ class Pipeline(object):
         self.sync_cnt  = sync_cnt
         # One ID has its pipeline : pipelines[ID]
         self.pipelines = collections.OrderedDict()
-        self.all_sync  = all_sync
         self.pool      = Pool(sync_cnt, init_worker, maxtasksperchild = sync_cnt)
         self.pool.terminate()
         if self.run_csv:
@@ -122,12 +122,14 @@ class Pipeline(object):
                 lines = lines[1:]
                 for line in lines:
                     ID, procedure, target, start_time, end_time, cost_time = line[:6]
+                    if target is None or len(target.strip()) == 0:
+                        target = ""
                     runned = "%s:%s:%s" % (ID, procedure, target)
                     self.run_array[runned] = "%s %s %s" % (start_time, end_time, cost_time)
             else:
                 os.system("echo 'ID,procedure,target,start_time,end_time,cost_time' > %s" % self.run_csv)
 
-    def append(self, ID, procedure, cmd, target = None, log = None, run_sync = False):
+    def append(self, ID, procedure, cmd, target = None, log = None, run_sync = False, record_on_error = False):
         """
         有些procedure, 是'无视'target,可以并行跑
         如在一个procedure里，没有指明target，或者指向一致的情况下本来就是并行的
@@ -138,74 +140,70 @@ class Pipeline(object):
         else:
             index = "%s:%s" % (procedure, target)
         # 这里是关键，和一般的想法不同，是先考虑index
-        # index可以看作是不同的步骤名，比如26个dnaseq样本，可能有bwa_mem下面有25个bwa_mem
-        if self.pipelines.get(index, None) is None:
-            self.pipelines[index] = [[ID, procedure, cmd, target, log]]
+        # index可以看作是不同的步骤名，比如25个dnaseq样本，可能有bwa_mem下面有25个记录
+        if self.pipelines.get(index, None):
+            self.pipelines[index].append((ID, procedure, cmd, target, log, record_on_error))
         else:
-            self.pipelines[index].append([ID, procedure, cmd, target, log])
+            self.pipelines[index] = deque([(ID, procedure, cmd, target, log, record_on_error)])
 
     def run_pipeline(self):
-        sync_cnt = len(self.pipelines)
-        if sync_cnt > self.sync_cnt:
-            sync_cnt = self.sync_cnt
-        self.pool = Pool(sync_cnt, init_worker, maxtasksperchild = sync_cnt)
+        self.pool = Pool(self.sync_cnt, init_worker, maxtasksperchild = self.sync_cnt)
         pipelines_not_empty = True
         while pipelines_not_empty:
             pipelines_not_empty = False
             for index, pipeline in self.pipelines.items():
-                if pipeline is not None:
-                    if len(pipeline) > sync_cnt:
-                        to_run = pipeline[:sync_cnt]  # 取出前面几个来
-                        self.pipelines[index] = pipeline[sync_cnt + 1:]  # 后面的继续strip from head
+                if len(pipeline):
+                    cnt = 0
+                    while cnt < self.sync_cnt and len(self.pipelines[index]):
+                        node = self.pipelines[index].popleft()
                         pipelines_not_empty = True
-                    else:
-                        to_run = pipeline
-                        self.pipelines[index] = None
-                    for each in to_run:
-                        ID, procedure, cmd, target, log = each
-                        self.pool.apply_async(Pipeline.run_cmd, args = (
-                            ID, procedure, cmd, target, log, self.test, self.run_array, self.run_csv))
+                        ID, procedure, cmd, target, log, record_on_error = node
+                        if target is None or len(target.strip()) == 0:
+                            target = ""
+                        runned     = "%s:%s:%s" % (ID, procedure, target)
+                        if runned not in self.run_array:
+                            self.pool.apply_async(Pipeline.run_cmd, args = (
+                                ID, procedure, cmd, target, log, self.test, self.run_csv, record_on_error))
+                            cnt += 1
         self.pool.close()
         self.pool.join()
         self.pool.terminate()
 
     def print_pipeline(self):
-        for ID in self.pipelines:
-            pipeline = self.pipelines[ID]
-            for index in pipeline:
-                for each in pipeline[index]:
-                    print(each)
+        for index in self.pipelines:
+            print("===== %s ======" % index)
+            pipeline = self.pipelines[index]
+            for each in pipeline:
+                print(each)
 
     @staticmethod
-    def run_cmd(ID, procedure, cmd, target, log, test, run_array, run_csv):
+    def run_cmd(ID, procedure, cmd, target, log, test, run_csv, record_on_error):
         try:
             start_time = datetime.datetime.now()
             now        = start_time.strftime("%Y-%m-%d %H:%M:%S")
-            if target is None or len(target) == 0:
-                target = ""
-            runned     = "%s:%s:%s" % (ID, procedure, target)
-            if runned in run_array:
-                pass
-            else:
-                print("================ %s ===============\n%s\n" % (now, cmd))
-                if not test:
-                    if log:
-                        with open(log, 'wb') as file_out:
-                            p = subprocess.Popen(cmd, stdout = file_out, stderr = file_out, shell = True)
-                            p.wait()
-                    else:
-                        subprocess.check_output(cmd, shell = True)
-                    end_time          = datetime.datetime.now()
-                    cost_time_reform  = str(end_time - start_time)
-                    start_time_reform = start_time.strftime("%Y-%m-%d %H:%M:%S")
-                    end_time_reform   = end_time.strftime("%Y-%m-%d %H:%M:%S")
-                    if run_csv:
-                        write_to_csv(run_csv, ID, procedure, target, start_time_reform, end_time_reform, cost_time_reform)
-                    print(runned, "finished at", end_time_reform)
+            print("================ %s ===============\n%s\n" % (now, cmd))
+            if not test:
+                if log:
+                    with open(log, 'wb') as file_out:
+                        p = subprocess.Popen(cmd, stdout = file_out, stderr = file_out, shell = True)
+                        p.wait()
+                else:
+                    subprocess.check_output(cmd, shell = True)
+                end_time          = datetime.datetime.now()
+                cost_time_reform  = str(end_time - start_time)
+                start_time_reform = start_time.strftime("%Y-%m-%d %H:%M:%S")
+                end_time_reform   = end_time.strftime("%Y-%m-%d %H:%M:%S")
+                if run_csv:
+                    write_to_csv(run_csv, ID, procedure, target, start_time_reform, end_time_reform, cost_time_reform)
+                print("{}:{} fininshed at {}".format(ID, procedure, end_time_reform))
         except subprocess.CalledProcessError as ex:
             end_time        = datetime.datetime.now()
             end_time_reform = end_time.strftime("%Y-%m-%d %H:%M:%S")
-            print(runned, "error at", end_time_reform, ex)
+            if record_on_error and run_csv:
+                print("{}:{} errored at {}, but still record".format(ID, procedure, end_time_reform))
+                write_to_csv(run_csv, ID, procedure, target, start_time_reform, end_time_reform, cost_time_reform)
+            else:
+                print("{}:{} errored at {}, and not record".format(ID, procedure, end_time_reform))
         except Exception as ex:
             traceback.print_exc()
             raise ex
