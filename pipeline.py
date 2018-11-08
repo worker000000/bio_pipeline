@@ -9,6 +9,7 @@ import re
 import datetime
 import subprocess
 import hashlib
+
 from collections import deque
 from multiprocessing import cpu_count
 from multiprocessing import Pool
@@ -133,83 +134,68 @@ class Pipeline(object):
 
     def append(self, ID, procedure, cmd, target = None, log = None, run_sync = False, record_on_error = False):
         """
-        有些procedure, 是'无视'target,可以并行跑
-        如在一个procedure里，没有指明target，或者指向一致的情况下本来就是并行的
-        增加run_sync, 可以在target不一致的情况下,并行运行.
+            有些procedure, 是'无视'target,可以并行跑
+            如在一个procedure里，没有指明target，或者指向一致的情况下本来就是并行的
+            增加run_sync, 可以在target不一致的情况下,并行运行.
         """
-        if target is None or len(target.strip()) == 0 or run_sync:
-            index = procedure
+        if target is None or len(target.strip()) == 0:
+            target = ""
+        runned     = "%s:%s:%s" % (ID, procedure, target)
+        if runned in self.run_array:
+            pass
         else:
-            index = "%s:%s" % (procedure, target)
-        # 这里是关键，和一般的想法不同，是先考虑index
-        # index可以看作是不同的步骤名，比如25个dnaseq样本，可能有bwa_mem下面有25个记录
-        # 这里有一个关键，不管是否「runned」，都放入到pipeline中。
-        # 否则，会有出现 应该在后面的「步骤」， 先放入pipeline的情况。
-        if self.pipelines.get(index, None):
-            self.pipelines[index].append((ID, procedure, cmd, target, log, record_on_error))
-        else:
-            self.pipelines[index] = deque([(ID, procedure, cmd, target, log, record_on_error)])
+            if self.pipelines.get(ID, None):
+                self.pipelines[ID].append((procedure, cmd, target, log, record_on_error))
+            else:
+                self.pipelines[ID] = deque([(procedure, cmd, target, log, record_on_error)])
 
     def run_pipeline(self):
         self.pool = Pool(self.sync_cnt, init_worker, maxtasksperchild = self.sync_cnt)
-        pipelines_not_empty = True
-        while pipelines_not_empty:
-            pipelines_not_empty = False
-            for index, pipeline in self.pipelines.items():
-                if len(pipeline):
-                    cnt = 0
-                    # cnt是为了 从一个pipeline上「挖出」sync_cnt个node来，再放入到进程池中，当然不能「挖」过头
-                    # 因为pipeline是orderd dict ，不会出现后面步骤先跑的情况
-                    while cnt < self.sync_cnt and len(self.pipelines[index]):
-                        node = self.pipelines[index].popleft()
-                        pipelines_not_empty = True
-                        ID, procedure, cmd, target, log, record_on_error = node
-                        if target is None or len(target.strip()) == 0:
-                            target = ""
-                        runned     = "%s:%s:%s" % (ID, procedure, target)
-                        if runned not in self.run_array:
-                            self.pool.apply_async(Pipeline.run_cmd, args = (
-                                ID, procedure, cmd, target, log, self.test, self.run_csv, record_on_error))
-                            cnt += 1
+        for ID, pipeline in self.pipelines.items():
+            self.pool.apply_async(Pipeline.run, args = (ID, pipeline, self.test, self.run_csv))
         self.pool.close()
         self.pool.join()
         self.pool.terminate()
 
-    def print_pipeline(self):
-        for index in self.pipelines:
-            print("===== %s ======" % index)
-            pipeline = self.pipelines[index]
+    def print(self):
+        for ID in self.pipelines:
+            print("===== %s ======" % ID)
+            pipeline = self.pipelines[ID]
             for each in pipeline:
                 print(each)
 
     @staticmethod
-    def run_cmd(ID, procedure, cmd, target, log, test, run_csv, record_on_error):
-        try:
-            start_time = datetime.datetime.now()
-            now        = start_time.strftime("%Y-%m-%d %H:%M:%S")
-            print("================ %s ===============\n%s\n" % (now, cmd))
-            if not test:
-                if log:
-                    with open(log, 'wb') as file_out:
-                        p = subprocess.Popen(cmd, stdout = file_out, stderr = file_out, shell = True)
-                        p.wait()
-                else:
-                    subprocess.check_output(cmd, shell = True)
+    def run(ID, pipeline, test, run_csv):
+        for step in pipeline:
+            try:
+                procedure, cmd, target, log, record_on_error = step
+                start_time = datetime.datetime.now()
+                now        = start_time.strftime("%Y-%m-%d %H:%M:%S")
+                print("================ %s ===============\n%s\n" % (now, cmd))
+                if not test:
+                    if log:
+                        with open(log, 'wb') as file_out:
+                            p = subprocess.Popen(cmd, stdout = file_out, stderr = file_out, shell = True)
+                            p.wait()
+                    else:
+                        subprocess.check_output(cmd, shell = True)
+                    end_time          = datetime.datetime.now()
+                    cost_time_reform  = str(end_time - start_time)
+                    start_time_reform = start_time.strftime("%Y-%m-%d %H:%M:%S")
+                    end_time_reform   = end_time.strftime("%Y-%m-%d %H:%M:%S")
+                    if run_csv:
+                        write_to_csv(run_csv, ID, procedure, target, start_time_reform, end_time_reform, cost_time_reform)
+                    print("{}:{}, start at {}, fininshed at {}, cost {}".format(ID, procedure, start_time_reform,  end_time_reform, cost_time_reform))
+            except subprocess.CalledProcessError as ex:
                 end_time          = datetime.datetime.now()
                 cost_time_reform  = str(end_time - start_time)
                 start_time_reform = start_time.strftime("%Y-%m-%d %H:%M:%S")
                 end_time_reform   = end_time.strftime("%Y-%m-%d %H:%M:%S")
-                if run_csv:
+                if record_on_error and run_csv:
                     write_to_csv(run_csv, ID, procedure, target, start_time_reform, end_time_reform, cost_time_reform)
-                print("{}:{} fininshed at {}".format(ID, procedure, end_time_reform))
-        except subprocess.CalledProcessError as ex:
-            end_time        = datetime.datetime.now()
-            end_time_reform = end_time.strftime("%Y-%m-%d %H:%M:%S")
-            if record_on_error and run_csv:
-                write_to_csv(run_csv, ID, procedure, target, start_time_reform, end_time_reform, cost_time_reform)
-                print("{}:{} errored at {}, but still record".format(ID, procedure, end_time_reform))
-            else:
-                print("{}:{} errored at {}, and not record".format(ID, procedure, end_time_reform))
-        except Exception as ex:
-            traceback.print_exc()
-            raise ex
+                    print("{}:{}, started at {}, errored at {}, but still record".format(ID, procedure, start_time_reform, end_time_reform))
+                else:
+                    print("{}:{}, started at {}, errored at {}, and not record".format(ID, procedure, start_time_reform, end_time_reform))
+            except Exception as ex:
+                traceback.print_exc()
+                raise ex
