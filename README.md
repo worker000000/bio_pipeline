@@ -1,2 +1,5 @@
-# pipeline to run bioinformatic
-paralize procedure of same name in a pipeline
+# my work tools to run bioinfomatic pipeline
+
+please see the demo.py to have a basic understanding of pipeline
+
+
