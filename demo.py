@@ -47,4 +47,15 @@ mark_dup_cmd = mark_dup_template.format(ID, ID, ID)
 pipeline.append(ID, "mark_dup", mark_dup_cmd, log = "demo/output/mark_dup.log")
 
 
+base_recal_template = "java -Xmx16g -Djava.io.tmpdir=/tmp \
+    -jar demo/tools/GATK/GenomeAnalysisTK.jar \
+    -T BaseRecalibrator \
+    -R demo/genome/E.coli_K12_MG1655.fa \
+    -I demo/output/{}.nodup.reorder.bwa_mem.bam \
+    -o demo/output/{}.group_info \
+    -nct 4 \
+    -l INFO"
+base_recal_cmd = base_recal_template.format(ID, ID)
+pipeline.append(ID, "base_recal", base_recal_cmd, log = "demo/output/base_recal.log")
+
 pipeline.run_pipeline()
