@@ -23,8 +23,8 @@ bwa_mem_cmd = bwa_mem_template.format(fq1, fq2)
 pipeline.append(ID, "bwa_mem", bwa_mem_cmd, log = "demo/output/bwa_mem.log")
 
 
-reorder_template = "java -Xmx16g -Djava.io.tmpdir=/tmp -jar \
-    /mnt/bioinfo/picard-tools-1.119/ReorderSam.jar \
+reorder_template = "java -Xmx16g -Djava.io.tmpdir=/tmp \
+    -jar demo/tools/picard-tools-1.119/ReorderSam.jar \
     I=demo/output/{}.bwa_mem.bam \
     O=demo/output/{}.reorder.bwa_mem.bam \
     REFERENCE=demo/genome/E.coli_K12_MG1655.fa \
@@ -35,7 +35,7 @@ pipeline.append(ID, "reorder", reorder_cmd, log = "demo/output/reorder.log")
 
 
 mark_dup_template = "java -Xmx16g -Djava.io.tmpdir=/tmp \
-    -jar /mnt/bioinfo/picard-tools-1.119/MarkDuplicates.jar \
+    -jar demo/tools/picard-tools-1.119/MarkDuplicates.jar \
     I=demo/output/{}.reorder.bwa_mem.bam \
     O=demo/output/{}.nodup.reorder.bwa_mem.bam \
     METRICS_FILE=demo/output/{}.duplicate_report.txt \
