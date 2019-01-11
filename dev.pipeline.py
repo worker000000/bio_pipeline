@@ -19,36 +19,40 @@ matched  = re.search(r'^MemTotal:\s+(\d+)', meminfo)
 sys_mem  = int(int(matched.groups()[0])/1024/1024)
 sys_core = cpu_count()
 
+
 # 时间函数
 def now():
     return datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
+
 def caluate_md5(file_full):
     try:
         myhash = hashlib.md5()
-        with open(file_full,'rb') as f:
+        with open(file_full, 'rb') as f:
             while True:
                 b = f.read(8096)
-                if not b :
+                if not b:
                     break
                 myhash.update(b)
         return myhash.hexdigest()
     except Exception as e:
         raise e
 
-def compare_md5(file_full,md5):
+
+def compare_md5(file_full, md5):
     try:
         if not os.path.isfile(file_full):
             raise Exception("%s is not a file" % file_full)
-        if md5 :
+        if md5:
             return (True if md5 == caluate_md5(file_full) else False)
         else:
             raise Exception("file or md5 absent")
     except Exception as e:
-        print(file_full,e)
+        print(file_full, e)
         return False
 
-def check_md5infile(file_full,md5_file_full):
+
+def check_md5infile(file_full, md5_file_full):
     try:
         fl = file_full.split("/")[-1]
         md5 = ""
@@ -58,7 +62,7 @@ def check_md5infile(file_full,md5_file_full):
                 md5 = ln.split("  ")[0]
                 break
         if md5:
-            return compare_md5(file_full,md5)
+            return compare_md5(file_full, md5)
         else:
             return False
     except Exception as e:
@@ -89,7 +93,7 @@ def mkdirs(*paths):
 
 def write_to_csv(csv, *lst):
     if lst:
-        lst = [ i if len(i) > 0 else "" for i in lst  ]
+        lst = [i if len(i) > 0 else "" for i in lst]
         line = ",".join(lst)
         os.system("echo %s >> %s" % (line, csv))
 
@@ -103,6 +107,9 @@ def read_csv(csv_file, delimiter=","):
 class Pipeline(object):
     ''' pipelines to run '''
     def __del__(self):
+        self.pool.terminate()
+
+    def terminate(self):
         self.pool.terminate()
 
     def __init__(self, run_csv = None, sync_cnt = 2, test = 1):
@@ -185,7 +192,7 @@ class Pipeline(object):
                     end_time_reform   = end_time.strftime("%Y-%m-%d %H:%M:%S")
                     if run_csv:
                         write_to_csv(run_csv, ID, procedure, target, start_time_reform, end_time_reform, cost_time_reform)
-                    print("{}:{}, start at {}, fininshed at {}, cost {}".format(ID, procedure, start_time_reform,  end_time_reform, cost_time_reform))
+                    print("{}:{}, start at {}, fininshed at {}, cost {}".format(ID, procedure, start_time_reform, end_time_reform, cost_time_reform))
             except subprocess.CalledProcessError as ex:
                 end_time          = datetime.datetime.now()
                 cost_time_reform  = str(end_time - start_time)
