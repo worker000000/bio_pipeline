@@ -18,11 +18,11 @@ params = parser.parse_args()
 per_mem  = int(sys_mem*params.percent/params.multi) if int(sys_mem*params.percent/params.multi) >= 3 else 4
 per_core = int(sys_core*params.percent/params.multi) if int(sys_core*params.percent/params.multi) >= 1 else 1
 
-all_rawdata_path = "../RawData"
-all_cleandata_path = "../CleanData"
+all_rawdata_path = "../Rawdata"
+all_cleandata_path = "../Cleandata"
 all_tmp_path = "../Tmpdata"
 all_results_path = "../Results"
-all_log_path = "../log"
+all_log_path = "../Log"
 pipeline = Pipeline('../Record/record.csv', params.multi, params.test)
 
 
@@ -69,7 +69,7 @@ def recal(ID, kind, data_path, tmp_path, target_path, rm = 0):
         # bwa_mem
         RG = '@RG\\tID:%s\\tPL:illumina\\tSM:%s' % (ID + kind, ID + kind)
         bwa_mem_template = "bwa mem -t {per_core} -M -R \"{RG}\" \
-                            /mnt/bioinfo/bundle/hg38/Homo_sapiens_assembly38.fasta.gz \
+                            /mnt/bioinfo/bundle/hg38/Homo_sapiens_assembly38.fasta \
                             {fq1} {fq2} | samtools sort -@ 2 -m {per_mem}G -o {tmp_path}/{bam_name}.sort.bam -"
         bwa_mem_cmd = bwa_mem_template.format(per_core = per_core - 2, per_mem = int(per_mem * 0.6), RG = RG,
                                               fq1 = fq1, fq2 = fq2, tmp_path = tmp_path, bam_name = bam_name)
@@ -109,7 +109,7 @@ def recal(ID, kind, data_path, tmp_path, target_path, rm = 0):
                     --known-sites /mnt/bioinfo/bundle/hg38/1000G_phase1.snps.high_confidence.hg38.vcf.gz \
                     --known-sites /mnt/bioinfo/bundle/hg38/beta/Homo_sapiens_assembly38.known_indels.vcf.gz \
                     -O {tmp_path}/{ID}.bqsr.table'
-    bqsr_cmd = bqsr_template.format(ID = ID + kind, per_mem = per_mem, Interval_list = "./exon_probe.hg38.gene.bed", tmp_path = tmp_path)
+    bqsr_cmd = bqsr_template.format(ID = ID + kind, per_mem = per_mem,  tmp_path = tmp_path)
     log = os.path.join(tmp_path, ID + kind + ".bqsr.log")
     pipeline.append(ID + kind, "bqsr", bqsr_cmd, ID + kind + ".BQSR.table", log = log, run_sync = True)
     # ApplyBQSR, instead PrintRead
@@ -122,36 +122,36 @@ def recal(ID, kind, data_path, tmp_path, target_path, rm = 0):
     log = os.path.join(tmp_path, ID + kind + ".recal.log")
     pipeline.append(ID + kind, "recal", apply_bqsr_cmd, ID + kind + ".recal.bam", log = log, run_sync = True)
     # qualimap
-    qualimap_template = "qualimap bamqc --java-mem-size={per_mem}G -gff exon_probe.hg38.gene.bed -bam {target_path}/{ID}.recal.bam"
+    qualimap_template = "qualimap bamqc --java-mem-size={per_mem}G -gff ./exon_probe.GRCh38.gene.150bp.bed -bam {target_path}/{ID}.recal.bam"
     qualimpap_cmd = qualimap_template.format(per_mem = per_mem, target_path = target_path, ID = ID + kind)
     log = os.path.join(target_path, ID + kind + ".qualimpa.log")
-    pipeline.append(ID + kind, "qualimpap", qualimpap_cmd, ID + kind + ".recal.bam", log = log, run_sync = True)
+    pipeline.append(ID + kind, "qualimap", qualimpap_cmd, ID + kind + ".recal.bam", log = log, run_sync = True)
     # HaplotypeCaller
-    haplotype_caller_template = 'gatk --java-options "-Xmx{per_mem}G -Djava.io.tmpdir=/tmp" HaplotypeCaller \
-                            --native-pair-hmm-threads {per_core} \
-                            -R /mnt/bioinfo/bundle/hg38/Homo_sapiens_assembly38.fasta \
-                            -I {target_path}/{ID}.recal.bam \
-                            -O {target_path}/{ID}.gvcf.gz \
-                            -ERC GVCF'
-    haplotype_caller_cmd = haplotype_caller_template.format(target_path = target_path, ID = ID + kind, per_mem = per_mem, per_core = per_core)
-    log = os.path.join(target_path, ID + kind + ".hc.log")
-    pipeline.append(ID + kind, "haplotype_caller", haplotype_caller_cmd, ID + kind + ".gvcf.gz", log = log, run_sync = True)
+    # haplotype_caller_template = 'gatk --java-options "-Xmx{per_mem}G -Djava.io.tmpdir=/tmp" HaplotypeCaller \
+                            # --native-pair-hmm-threads {per_core} \
+                            # -R /mnt/bioinfo/bundle/hg38/Homo_sapiens_assembly38.fasta \
+                            # -I {target_path}/{ID}.recal.bam \
+                            # -O {target_path}/{ID}.gvcf.gz \
+                            # -ERC GVCF'
+    # haplotype_caller_cmd = haplotype_caller_template.format(target_path = target_path, ID = ID + kind, per_mem = per_mem, per_core = per_core)
+    # log = os.path.join(target_path, ID + kind + ".hc.log")
+    # pipeline.append(ID + kind, "haplotype_caller", haplotype_caller_cmd, ID + kind + ".gvcf.gz", log = log, run_sync = True)
     # HaplotypeCaller exon
     haplotype_caller_exon_template = 'gatk --java-options "-Xmx{per_mem}G -Djava.io.tmpdir=/tmp" HaplotypeCaller \
                             --native-pair-hmm-threads {per_core} \
                             -R /mnt/bioinfo/bundle/hg38/Homo_sapiens_assembly38.fasta \
-                            -L ./exon.list \
+                            -L ./exon_probe.GRCh38.gene.150bp.bed \
                             --dbsnp /mnt/bioinfo/bundle/hg38/dbsnp_146.hg38.vcf.gz \
                             -I {target_path}/{ID}.recal.bam \
-                            -O {target_path}/{ID}.exon.gvcf.gz \
+                            -O {target_path}/{ID}.exon.g.vcf \
                             -ERC GVCF'
     haplotype_caller_exon_cmd = haplotype_caller_exon_template.format(target_path = target_path, ID = ID + kind, per_mem = per_mem, per_core = per_core)
     log = os.path.join(target_path, ID + kind + ".hc.exon.log")
-    pipeline.append(ID + kind, "haplotype_caller_exon", haplotype_caller_exon_cmd, ID + kind + ".exon.gvcf.gz", log = log, run_sync = True)
+    pipeline.append(ID + kind, "haplotype_caller_exon", haplotype_caller_exon_cmd, ID + kind + ".exon.g.vcf", log = log, run_sync = True)
 
 
 # main function
-def wgs(ID, normal_path, tumor_path,
+def wes(ID, normal_path, tumor_path,
         normal_clean_path, tumor_clean_path,
         normal_tmp_path, tumor_tmp_path,
         target_path, rm = params.rm):
@@ -182,7 +182,7 @@ try:
         tumor_tmp_path    = os.path.join(all_tmp_path, tumor_path_name)
 
         target_path = os.path.join(all_results_path, ID)
-        wgs(ID, normal_path, tumor_path, normal_clean_path, tumor_clean_path, normal_tmp_path, tumor_tmp_path, target_path, rm = params.rm)
+        wes(ID, normal_path, tumor_path, normal_clean_path, tumor_clean_path, normal_tmp_path, tumor_tmp_path, target_path, rm = params.rm)
 except KeyboardInterrupt:
     print("Ctrl+C pressed ,exiting")
     pipeline.terminate()
