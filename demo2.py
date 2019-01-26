@@ -109,7 +109,7 @@ def recal(ID, kind, data_path, tmp_path, target_path, rm = 0):
                     --known-sites /mnt/bioinfo/bundle/hg38/1000G_phase1.snps.high_confidence.hg38.vcf.gz \
                     --known-sites /mnt/bioinfo/bundle/hg38/beta/Homo_sapiens_assembly38.known_indels.vcf.gz \
                     -O {tmp_path}/{ID}.bqsr.table'
-    bqsr_cmd = bqsr_template.format(ID = ID + kind, per_mem = per_mem,  tmp_path = tmp_path)
+    bqsr_cmd = bqsr_template.format(ID = ID + kind, per_mem = per_mem, tmp_path = tmp_path)
     log = os.path.join(tmp_path, ID + kind + ".bqsr.log")
     pipeline.append(ID + kind, "bqsr", bqsr_cmd, ID + kind + ".BQSR.table", log = log, run_sync = True)
     # ApplyBQSR, instead PrintRead
