@@ -67,14 +67,19 @@ def recal(ID, kind, data_path, tmp_path, target_path, rm = 0):
     for (fq1, fq2) in zip(fq_files[0::2], fq_files[1::2]):
         bam_name = os.path.basename(fq1).split(".")[0].replace("_1", "")
         # bwa_mem
+        # for memory limitation,  samtools sort may be interrupt
         RG = '@RG\\tID:%s\\tPL:illumina\\tSM:%s' % (ID + kind, ID + kind)
-        bwa_mem_template = "bwa mem -t {per_core} -M -R \"{RG}\" \
+        bwa_mem_template = 'bwa mem -t {per_core} -M -R \"{RG}\" \
                             /mnt/bioinfo/bundle/hg38/Homo_sapiens_assembly38.fasta \
-                            {fq1} {fq2} | samtools sort -@ 2 -m {per_mem}G -o {tmp_path}/{bam_name}.sort.bam -"
-        bwa_mem_cmd = bwa_mem_template.format(per_core = per_core - 2, per_mem = int(per_mem * 0.6), RG = RG,
-                                              fq1 = fq1, fq2 = fq2, tmp_path = tmp_path, bam_name = bam_name)
+                            {fq1} {fq2} | samtools view -S -b - > {tmp_path}/{bam_name}.bwa_mem.bam'
+        bwa_mem_cmd = bwa_mem_template.format(per_core = per_core, RG = RG, fq1 = fq1, fq2 = fq2, tmp_path = tmp_path, bam_name = bam_name)
         log = os.path.join(tmp_path, bam_name + ".bwa_mem.log")
-        pipeline.append(ID + kind, "bwa_mem", bwa_mem_cmd, "{}.sort.bam".format(bam_name), log = log, run_sync = True)
+        pipeline.append(ID + kind, "bwa_mem", bwa_mem_cmd, "{}.bwa_mem.bam".format(bam_name), log = log, run_sync = True)
+        # sort
+        sort_template = "samtools sort -@ {per_core} -m {per_mem}G -O bam -o {tmp_path}/{bam_name}.sort.bam {tmp_path}/{bam_name}.bwa_mem.bam"
+        sort_cmd = sort_template.format(per_core = per_core, tmp_path = tmp_path, bam_name = bam_name, per_mem = int(0.6*per_mem))
+        log = os.path.join(tmp_path, bam_name + ".sort.log")
+        pipeline.append(ID + kind, "sort", sort_cmd, "{}.sort.bam".format(bam_name), log = log, run_sync = True)
         # markdup
         mark_dup_template = "gatk MarkDuplicates \
                             -I {tmp_path}/{bam_name}.sort.bam \
@@ -109,7 +114,7 @@ def recal(ID, kind, data_path, tmp_path, target_path, rm = 0):
                     --known-sites /mnt/bioinfo/bundle/hg38/1000G_phase1.snps.high_confidence.hg38.vcf.gz \
                     --known-sites /mnt/bioinfo/bundle/hg38/beta/Homo_sapiens_assembly38.known_indels.vcf.gz \
                     -O {tmp_path}/{ID}.bqsr.table'
-    bqsr_cmd = bqsr_template.format(ID = ID + kind, per_mem = per_mem,  tmp_path = tmp_path)
+    bqsr_cmd = bqsr_template.format(ID = ID + kind, per_mem = per_mem, tmp_path = tmp_path)
     log = os.path.join(tmp_path, ID + kind + ".bqsr.log")
     pipeline.append(ID + kind, "bqsr", bqsr_cmd, ID + kind + ".BQSR.table", log = log, run_sync = True)
     # ApplyBQSR, instead PrintRead
@@ -121,6 +126,9 @@ def recal(ID, kind, data_path, tmp_path, target_path, rm = 0):
     apply_bqsr_cmd = apply_bqsr_template.format(per_mem = per_mem, tmp_path = tmp_path, ID = ID + kind, target_path = target_path)
     log = os.path.join(tmp_path, ID + kind + ".recal.log")
     pipeline.append(ID + kind, "recal", apply_bqsr_cmd, ID + kind + ".recal.bam", log = log, run_sync = True)
+    # rm tmp_data_path, add -r1 when run this script
+    if rm:
+        pipeline.append(ID + kind, "rm_tmpdata", "rm -rf {}".format(tmp_path))
     # qualimap
     qualimap_template = "qualimap bamqc --java-mem-size={per_mem}G -gff ./exon_probe.GRCh38.gene.150bp.bed -bam {target_path}/{ID}.recal.bam"
     qualimpap_cmd = qualimap_template.format(per_mem = per_mem, target_path = target_path, ID = ID + kind)
@@ -148,6 +156,29 @@ def recal(ID, kind, data_path, tmp_path, target_path, rm = 0):
     haplotype_caller_exon_cmd = haplotype_caller_exon_template.format(target_path = target_path, ID = ID + kind, per_mem = per_mem, per_core = per_core)
     log = os.path.join(target_path, ID + kind + ".hc.exon.log")
     pipeline.append(ID + kind, "haplotype_caller_exon", haplotype_caller_exon_cmd, ID + kind + ".exon.g.vcf", log = log, run_sync = True)
+    # DBimport
+
+
+def mutect2(IDnormal, normal_bam, IDtumor, tumor_bam, mutect2_vcf):
+    mutect2_cmd = 'gatk --java-options "-Xmx{per_mem}G -Djava.io.tmpdir=/tmp" Mutect2 \
+                    -R /mnt/bioinfo/bundle/hg38/Homo_sapiens_assembly38.fasta \
+                    --germline_resource /mnt/bioinfo/bundle/Mutect2/af-only-gnomad.hg38.vcf.gz \
+                    -I {normal_bam} \
+                    -normal {IDnormal} \
+                    -I {tumor_bam} \
+                    -tumor {IDtumor} \
+                    -L ./exon_probe.GRCh38.gene.150bp.bed \
+                    --disable-read-filter MateOnSameContigOrNoMappedMateReadFilter \
+                    -O {mutect2_vcf}'.format(per_mem = per_mem,
+                                             normal_bam = normal_bam,
+                                             tumor_bam = tumor_bam,
+                                             IDnormal = IDnormal,
+                                             IDtumor  = IDtumor,
+                                             mutect2_vcf = mutect2_vcf)
+    log = os.path.join(all_log_path, "{}.{}.mutect2.log".format(IDnormal, IDtumor))
+    pipeline.append(IDnormal+"-"+IDtumor+"_with_gnomad", "mutect2", mutect2_cmd, log = log)
+
+# def pon(ID, normal_bam, pon_vcf):
 
 
 # main function
@@ -162,6 +193,7 @@ def wes(ID, normal_path, tumor_path,
     qc(ID, "tumor", tumor_path, tumor_clean_path)
     recal(ID, "normal", normal_path, normal_tmp_path, target_path, params.rm)
     recal(ID, "tumor", tumor_path, tumor_tmp_path, target_path, params.rm)
+    # pon(ID+"normal", os.path.join(target_path, "{}normal.recal.bam".format(ID)), os.path.join(target_path, "normal_for_pon.vcf.gz"))
 
 
 # find fq.gz files, pair them, then add to pipeline
@@ -169,20 +201,35 @@ find_rawdata_path_cmd = "find {all_rawdata_path} -maxdepth 1 -type d | sort ".fo
 paths = return_cmd(find_rawdata_path_cmd)[1:]
 # zip normal and tumor, then add to pipeline
 normal_tumor = zip(paths[0::2], paths[1::2])
+
 try:
+    gvcfs = []
     for (normal_path, tumor_path) in normal_tumor:
         normal_path_name = os.path.basename(normal_path)
         tumor_path_name = os.path.basename(tumor_path)
         ID = normal_path_name[:-3]
-
         normal_clean_path = os.path.join(all_cleandata_path, normal_path_name)
         tumor_clean_path  = os.path.join(all_cleandata_path, tumor_path_name)
-
         normal_tmp_path   = os.path.join(all_tmp_path, normal_path_name)
         tumor_tmp_path    = os.path.join(all_tmp_path, tumor_path_name)
-
         target_path = os.path.join(all_results_path, ID)
         wes(ID, normal_path, tumor_path, normal_clean_path, tumor_clean_path, normal_tmp_path, tumor_tmp_path, target_path, rm = params.rm)
+        # mutect2(ID+"normal",
+                # os.path.join(target_path, "{}.recal.bam".format(ID + "normal")),
+                # ID+"tumor",
+                # os.path.join(target_path, "{}.recal.bam".format(ID + "tumor")),
+                # os.path.join(target_path, "{}.mutect2.vcf".format(ID)))
+        gvcfs.append(os.path.join(target_path, ID+'normal.exon.g.vcf'))
+
+    # only use intervals ?
+    gvcfs = " -V ".join(gvcfs)
+    genomics_dbimport_cmd = 'gatk --java-options "-Xmx{per_mem}G -Djava.io.tmpdir=/tmp" GenomicsDBImport \
+        --overwrite-existing-genomicsdb-workspace \
+        --genomicsdb-workspace-path ../Results/all/db \
+        -L ./exon_probe.GRCh38.gene.150bp.bed \
+        -V {gvcfs}'.format(per_mem = per_mem, gvcfs = gvcfs)
+    log = os.path.join(all_log_path, ".dbimport.log")
+    # pipeline.append("all", "dbimport", genomics_dbimport_cmd, log = log)
 except KeyboardInterrupt:
     print("Ctrl+C pressed ,exiting")
     pipeline.terminate()
