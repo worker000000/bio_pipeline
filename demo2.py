@@ -71,32 +71,38 @@ def recal(ID, kind, data_path, tmp_path, target_path, rm = 0):
         RG = '@RG\\tID:%s\\tPL:illumina\\tSM:%s' % (ID + kind, ID + kind)
         bwa_mem_template = 'bwa mem -t {per_core} -M -R \"{RG}\" \
                             /mnt/bioinfo/bundle/hg38/Homo_sapiens_assembly38.fasta \
-                            {fq1} {fq2} | samtools view -S -b - > {tmp_path}/{bam_name}.bwa_mem.bam'
-        bwa_mem_cmd = bwa_mem_template.format(per_core = per_core, RG = RG, fq1 = fq1, fq2 = fq2, tmp_path = tmp_path, bam_name = bam_name)
+                            {fq1} {fq2} | samtools sort -@ 2 -m 3G -o {tmp_path}/{bam_name}.sort.bam -'
+        bwa_mem_cmd = bwa_mem_template.format(per_core = per_core - 2, RG = RG, fq1 = fq1, fq2 = fq2, tmp_path = tmp_path, bam_name = bam_name)
         log = os.path.join(tmp_path, bam_name + ".bwa_mem.log")
-        pipeline.append(ID + kind, "bwa_mem", bwa_mem_cmd, "{}.bwa_mem.bam".format(bam_name), log = log, run_sync = True)
+        pipeline.append(ID + kind, "bwa_mem_sort", bwa_mem_cmd, "{}.sort.bam".format(bam_name), log = log, run_sync = True)
         # sort
-        sort_template = "samtools sort -@ {per_core} -m {per_mem}G -O bam -o {tmp_path}/{bam_name}.sort.bam {tmp_path}/{bam_name}.bwa_mem.bam"
-        sort_cmd = sort_template.format(per_core = per_core, tmp_path = tmp_path, bam_name = bam_name, per_mem = int(0.6*per_mem))
-        log = os.path.join(tmp_path, bam_name + ".sort.log")
-        pipeline.append(ID + kind, "sort", sort_cmd, "{}.sort.bam".format(bam_name), log = log, run_sync = True)
+        # sort_template = 'gatk --java-options "-Xmx{per_mem}G -Djava.io.tmpdir=/tmp" SortSam \
+                        # -SO coordinate \
+                        # -I {tmp_path}/{bam_name}.bwa_mem.bam \
+                        # -O {tmp_path}/{bam_name}.sort.bam'
+        # sort_cmd = sort_template.format(tmp_path = tmp_path, bam_name = bam_name, per_mem = per_mem)
+        # log = os.path.join(tmp_path, bam_name + ".sort.log")
+        # pipeline.append(ID + kind, "sort", sort_cmd, "{}.sort.bam".format(bam_name), log = log, run_sync = True)
         # markdup
-        mark_dup_template = "gatk MarkDuplicates \
+        mark_dup_template = 'gatk --java-options "-Xmx{per_mem}G -Djava.io.tmpdir=/tmp" \
+                            MarkDuplicates \
                             -I {tmp_path}/{bam_name}.sort.bam \
                             -M {tmp_path}/{bam_name}.markdup.sort.metrics.txt \
-                            -O {tmp_path}/{bam_name}.markdup.sort.bam"
-        mark_dup_cmd = mark_dup_template.format(tmp_path = tmp_path, bam_name = bam_name)
+                            -O {tmp_path}/{bam_name}.markdup.sort.bam'
+        mark_dup_cmd = mark_dup_template.format(tmp_path = tmp_path, bam_name = bam_name, per_mem = per_mem)
         log = os.path.join(tmp_path, bam_name+".markdup.log")
         merge_bams.append("{tmp_path}/{bam_name}.markdup.sort.bam".format(tmp_path = tmp_path, bam_name = bam_name))
         pipeline.append(ID + kind, "markdup", mark_dup_cmd, "{}.markdup.sort.bam".format(bam_name), log = log, run_sync = True)
     # merge
-    merge_bams_template = "gatk MergeSamFiles -O {}/{}.merge.bam -I "
+    merge_bams_template = 'gatk --java-options "-Xmx{per_mem}G -Djava.io.tmpdir=/tmp" \
+                            MergeSamFiles -O {tmp_path}/{ID}.merge.bam -I '
     merge_bams = " -I ".join(merge_bams)
-    merge_bams_cmd = merge_bams_template.format(tmp_path, ID + kind) + merge_bams
+    merge_bams_cmd = merge_bams_template.format(tmp_path = tmp_path, ID = ID + kind, per_mem = per_mem) + merge_bams
     log = os.path.join(tmp_path, ID + kind + ".merge.log")
     pipeline.append(ID + kind, "merge_bams", merge_bams_cmd, ID + kind + ".merge.bam", log = log, run_sync = True)
     # fixinfo
-    fix_info_template = 'gatk --java-options "-Xmx{per_mem}G -Djava.io.tmpdir=/tmp" FixMateInformation \
+    fix_info_template = 'gatk --java-options "-Xmx{per_mem}G -Djava.io.tmpdir=/tmp" \
+                        FixMateInformation \
                         -I {tmp_path}/{ID}.merge.bam \
                         -O {tmp_path}/{ID}.fix.merge.bam \
                         -SO coordinate'
@@ -107,7 +113,8 @@ def recal(ID, kind, data_path, tmp_path, target_path, rm = 0):
     index_cmd = "samtools index {}/{}.fix.merge.bam".format(tmp_path, ID + kind)
     pipeline.append(ID + kind, "index_fix", index_cmd, ID + kind + ".fix.merge.bam")
     # bqsr
-    bqsr_template = 'gatk --java-options "-Xmx{per_mem}G -Djava.io.tmpdir=/tmp" BaseRecalibrator \
+    bqsr_template = 'gatk --java-options "-Xmx{per_mem}G -Djava.io.tmpdir=/tmp" \
+                    BaseRecalibrator \
                     -R /mnt/bioinfo/bundle/hg38/Homo_sapiens_assembly38.fasta \
                     -I {tmp_path}/{ID}.fix.merge.bam  \
                     --known-sites /mnt/bioinfo/bundle/hg38/Mills_and_1000G_gold_standard.indels.hg38.vcf.gz \
@@ -118,7 +125,8 @@ def recal(ID, kind, data_path, tmp_path, target_path, rm = 0):
     log = os.path.join(tmp_path, ID + kind + ".bqsr.log")
     pipeline.append(ID + kind, "bqsr", bqsr_cmd, ID + kind + ".BQSR.table", log = log, run_sync = True)
     # ApplyBQSR, instead PrintRead
-    apply_bqsr_template = 'gatk --java-options "-Xmx{per_mem}G -Djava.io.tmpdir=/tmp" ApplyBQSR \
+    apply_bqsr_template = 'gatk --java-options "-Xmx{per_mem}G -Djava.io.tmpdir=/tmp" \
+                            ApplyBQSR \
                             -R /mnt/bioinfo/bundle/hg38/Homo_sapiens_assembly38.fasta \
                             --bqsr-recal-file {tmp_path}/{ID}.bqsr.table \
                             -I {tmp_path}/{ID}.fix.merge.bam \
@@ -134,21 +142,11 @@ def recal(ID, kind, data_path, tmp_path, target_path, rm = 0):
     qualimpap_cmd = qualimap_template.format(per_mem = per_mem, target_path = target_path, ID = ID + kind)
     log = os.path.join(target_path, ID + kind + ".qualimpa.log")
     pipeline.append(ID + kind, "qualimap", qualimpap_cmd, ID + kind + ".recal.bam", log = log, run_sync = True)
-    # HaplotypeCaller
-    # haplotype_caller_template = 'gatk --java-options "-Xmx{per_mem}G -Djava.io.tmpdir=/tmp" HaplotypeCaller \
-                            # --native-pair-hmm-threads {per_core} \
-                            # -R /mnt/bioinfo/bundle/hg38/Homo_sapiens_assembly38.fasta \
-                            # -I {target_path}/{ID}.recal.bam \
-                            # -O {target_path}/{ID}.gvcf.gz \
-                            # -ERC GVCF'
-    # haplotype_caller_cmd = haplotype_caller_template.format(target_path = target_path, ID = ID + kind, per_mem = per_mem, per_core = per_core)
-    # log = os.path.join(target_path, ID + kind + ".hc.log")
-    # pipeline.append(ID + kind, "haplotype_caller", haplotype_caller_cmd, ID + kind + ".gvcf.gz", log = log, run_sync = True)
     # HaplotypeCaller exon
-    haplotype_caller_exon_template = 'gatk --java-options "-Xmx{per_mem}G -Djava.io.tmpdir=/tmp" HaplotypeCaller \
-                            --native-pair-hmm-threads {per_core} \
+    haplotype_caller_exon_template = 'gatk --java-options "-Xmx{per_mem}G -Djava.io.tmpdir=/tmp" \
+                            HaplotypeCaller \
                             -R /mnt/bioinfo/bundle/hg38/Homo_sapiens_assembly38.fasta \
-                            -L ./exon_probe.GRCh38.gene.150bp.bed \
+                            --native-pair-hmm-threads {per_core} \
                             --dbsnp /mnt/bioinfo/bundle/hg38/dbsnp_146.hg38.vcf.gz \
                             -I {target_path}/{ID}.recal.bam \
                             -O {target_path}/{ID}.exon.g.vcf \
@@ -156,74 +154,95 @@ def recal(ID, kind, data_path, tmp_path, target_path, rm = 0):
     haplotype_caller_exon_cmd = haplotype_caller_exon_template.format(target_path = target_path, ID = ID + kind, per_mem = per_mem, per_core = per_core)
     log = os.path.join(target_path, ID + kind + ".hc.exon.log")
     pipeline.append(ID + kind, "haplotype_caller_exon", haplotype_caller_exon_cmd, ID + kind + ".exon.g.vcf", log = log, run_sync = True)
-    # DBimport
+
+
+def pon(IDnormal, normal_bam, pon_vcf):
+    pon_cmd = 'gatk --java-options "-Xmx{per_mem}G -Djava.io.tmpdir=/tmp" \
+                Mutect2 \
+                -R /mnt/bioinfo/bundle/hg38/Homo_sapiens_assembly38.fasta \
+                --disable-read-filter MateOnSameContigOrNoMappedMateReadFilter \
+                --germline-resource /mnt/bioinfo/bundle/Mutect2/af-only-gnomad.hg38.vcf.gz \
+                -I {normal_bam} \
+                -tumor {IDnormal}\
+                -O {pon_vcf}'.format(per_mem = per_mem, normal_bam = normal_bam, IDnormal = IDnormal, pon_vcf = pon_vcf)
+    log = os.path.join(all_log_path, "{}.pon.log".format(ID))
+    pipeline.append(IDnormal, "pon", pon_cmd, log = log)
 
 
 def mutect2(IDnormal, normal_bam, IDtumor, tumor_bam, mutect2_vcf):
-    mutect2_cmd = 'gatk --java-options "-Xmx{per_mem}G -Djava.io.tmpdir=/tmp" Mutect2 \
+    mutect2_cmd = 'gatk --java-options "-Xmx{per_mem}G -Djava.io.tmpdir=/tmp" \
+                    Mutect2 \
                     -R /mnt/bioinfo/bundle/hg38/Homo_sapiens_assembly38.fasta \
-                    --germline_resource /mnt/bioinfo/bundle/Mutect2/af-only-gnomad.hg38.vcf.gz \
+                    --germline-resource /mnt/bioinfo/bundle/Mutect2/af-only-gnomad.hg38.vcf.gz \
                     -I {normal_bam} \
                     -normal {IDnormal} \
                     -I {tumor_bam} \
                     -tumor {IDtumor} \
-                    -L ./exon_probe.GRCh38.gene.150bp.bed \
+                    -pon ../Results/all.pon.vcf.gz \
                     --disable-read-filter MateOnSameContigOrNoMappedMateReadFilter \
+                    --af-of-alleles-not-in-resource 0.0000025 \
                     -O {mutect2_vcf}'.format(per_mem = per_mem,
-                                             normal_bam = normal_bam,
-                                             tumor_bam = tumor_bam,
-                                             IDnormal = IDnormal,
-                                             IDtumor  = IDtumor,
-                                             mutect2_vcf = mutect2_vcf)
+                                         normal_bam = normal_bam,
+                                         tumor_bam = tumor_bam,
+                                         IDnormal = IDnormal,
+                                         IDtumor  = IDtumor,
+                                         mutect2_vcf = mutect2_vcf)
+                    # -L ./exon_probe.GRCh38.gene.150bp.bed \
     log = os.path.join(all_log_path, "{}.{}.mutect2.log".format(IDnormal, IDtumor))
-    pipeline.append(IDnormal+"-"+IDtumor+"_with_gnomad", "mutect2", mutect2_cmd, log = log)
+    # mutect shoud be run after all pons done
+    pipeline.append(IDnormal + "-" + IDtumor, "mutect2_gnomad", mutect2_cmd, log = log)
 
-# def pon(ID, normal_bam, pon_vcf):
 
-
-# main function
-def wes(ID, normal_path, tumor_path,
-        normal_clean_path, tumor_clean_path,
-        normal_tmp_path, tumor_tmp_path,
-        target_path, rm = params.rm):
-    # create each
+# wesfunction
+def wes(ID, normal_path, tumor_path, normal_clean_path, tumor_clean_path, normal_tmp_path, tumor_tmp_path, target_path, rm = params.rm):
     for each in (normal_clean_path, tumor_clean_path, normal_tmp_path, tumor_tmp_path, target_path):
         os.system("mkdir -p {}".format(each))
     qc(ID, "normal", normal_path, normal_clean_path)
     qc(ID, "tumor", tumor_path, tumor_clean_path)
     recal(ID, "normal", normal_path, normal_tmp_path, target_path, params.rm)
     recal(ID, "tumor", tumor_path, tumor_tmp_path, target_path, params.rm)
-    # pon(ID+"normal", os.path.join(target_path, "{}normal.recal.bam".format(ID)), os.path.join(target_path, "normal_for_pon.vcf.gz"))
+    pon(ID + "normal", os.path.join(target_path, "{}normal.recal.bam".format(ID)), os.path.join(target_path, "{}.pon.vcf.gz".format(ID)))
 
 
-# find fq.gz files, pair them, then add to pipeline
+############################################################# main ########################################################################
+# find fq.gz files, zip pair them, then add to pipeline
 find_rawdata_path_cmd = "find {all_rawdata_path} -maxdepth 1 -type d | sort ".format(all_rawdata_path = all_rawdata_path)
 paths = return_cmd(find_rawdata_path_cmd)[1:]
-# zip normal and tumor, then add to pipeline
 normal_tumor = zip(paths[0::2], paths[1::2])
 
+# TODO: ctrl+c to stop all cmds which is run by os.popen
 try:
     gvcfs = []
+    pons  = []
     for (normal_path, tumor_path) in normal_tumor:
-        normal_path_name = os.path.basename(normal_path)
-        tumor_path_name = os.path.basename(tumor_path)
-        ID = normal_path_name[:-3]
+        normal_path_name  = os.path.basename(normal_path)
+        tumor_path_name   = os.path.basename(tumor_path)
+        ID                = normal_path_name[:-3]
         normal_clean_path = os.path.join(all_cleandata_path, normal_path_name)
         tumor_clean_path  = os.path.join(all_cleandata_path, tumor_path_name)
         normal_tmp_path   = os.path.join(all_tmp_path, normal_path_name)
         tumor_tmp_path    = os.path.join(all_tmp_path, tumor_path_name)
-        target_path = os.path.join(all_results_path, ID)
+        target_path       = os.path.join(all_results_path, ID)
         wes(ID, normal_path, tumor_path, normal_clean_path, tumor_clean_path, normal_tmp_path, tumor_tmp_path, target_path, rm = params.rm)
-        # mutect2(ID+"normal",
-                # os.path.join(target_path, "{}.recal.bam".format(ID + "normal")),
-                # ID+"tumor",
-                # os.path.join(target_path, "{}.recal.bam".format(ID + "tumor")),
-                # os.path.join(target_path, "{}.mutect2.vcf".format(ID)))
+        # mutect shoud be run after all pons done, and merge
+        mutect2(ID+"normal", os.path.join(target_path, "{}.recal.bam".format(ID + "normal")),
+                ID+"tumor", os.path.join(target_path, "{}.recal.bam".format(ID + "tumor")),
+                os.path.join(target_path, "{}.mutect2.vcf".format(ID)))
         gvcfs.append(os.path.join(target_path, ID+'normal.exon.g.vcf'))
+        pons.append(os.path.join(target_path, "{}.pon.vcf.gz".format(ID)))
+    # merge pon
+    pons = " -vcfs ".join(pons)
+    create_pon_cmd = 'gatk --java-options "-Xmx{per_mem}G -Djava.io.tmpdir=/tmp" \
+        CreateSomaticPanelOfNormals  \
+        -vcfs {pons} \
+        -O ../Results/all.pon.vcf.gz'.format(per_mem = per_mem, pons = pons)
+    log = os.path.join(all_log_path, "all.pon.log")
+    # pipeline.append("all", "create_pon", create_pon_cmd, log = log)
 
     # only use intervals ?
     gvcfs = " -V ".join(gvcfs)
-    genomics_dbimport_cmd = 'gatk --java-options "-Xmx{per_mem}G -Djava.io.tmpdir=/tmp" GenomicsDBImport \
+    genomics_dbimport_cmd = 'gatk --java-options "-Xmx{per_mem}G -Djava.io.tmpdir=/tmp" \
+        GenomicsDBImport \
         --overwrite-existing-genomicsdb-workspace \
         --genomicsdb-workspace-path ../Results/all/db \
         -L ./exon_probe.GRCh38.gene.150bp.bed \
