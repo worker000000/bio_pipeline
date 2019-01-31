@@ -156,6 +156,7 @@ def recal(ID, kind, data_path, tmp_path, target_path, rm = 0):
     pipeline.append(ID + kind, "haplotype_caller_exon", haplotype_caller_exon_cmd, ID + kind + ".exon.g.vcf", log = log, run_sync = True)
 
 
+
 def pon(IDnormal, normal_bam, pon_vcf):
     pon_cmd = 'gatk --java-options "-Xmx{per_mem}G -Djava.io.tmpdir=/tmp" \
                 Mutect2 \
@@ -182,11 +183,11 @@ def mutect2(IDnormal, normal_bam, IDtumor, tumor_bam, mutect2_vcf):
                     --disable-read-filter MateOnSameContigOrNoMappedMateReadFilter \
                     --af-of-alleles-not-in-resource 0.0000025 \
                     -O {mutect2_vcf}'.format(per_mem = per_mem,
-                                         normal_bam = normal_bam,
-                                         tumor_bam = tumor_bam,
-                                         IDnormal = IDnormal,
-                                         IDtumor  = IDtumor,
-                                         mutect2_vcf = mutect2_vcf)
+                                     normal_bam = normal_bam,
+                                     tumor_bam = tumor_bam,
+                                     IDnormal = IDnormal,
+                                     IDtumor  = IDtumor,
+                                     mutect2_vcf = mutect2_vcf)
                     # -L ./exon_probe.GRCh38.gene.150bp.bed \
     log = os.path.join(all_log_path, "{}.{}.mutect2.log".format(IDnormal, IDtumor))
     # mutect shoud be run after all pons done
@@ -205,8 +206,9 @@ def wes(ID, normal_path, tumor_path, normal_clean_path, tumor_clean_path, normal
 
 
 ############################################################# main ########################################################################
-# find fq.gz files, zip pair them, then add to pipeline
+# find fq.gz files, pair them using zip, then add to pipeline
 find_rawdata_path_cmd = "find {all_rawdata_path} -maxdepth 1 -type d | sort ".format(all_rawdata_path = all_rawdata_path)
+# find origin paths
 paths = return_cmd(find_rawdata_path_cmd)[1:]
 normal_tumor = zip(paths[0::2], paths[1::2])
 
@@ -237,18 +239,45 @@ try:
         -vcfs {pons} \
         -O ../Results/all.pon.vcf.gz'.format(per_mem = per_mem, pons = pons)
     log = os.path.join(all_log_path, "all.pon.log")
-    # pipeline.append("all", "create_pon", create_pon_cmd, log = log)
+    pipeline.append("all", "create_pon", create_pon_cmd, log = log)
 
-    # only use intervals ?
+    # only use intervals
     gvcfs = " -V ".join(gvcfs)
-    genomics_dbimport_cmd = 'gatk --java-options "-Xmx{per_mem}G -Djava.io.tmpdir=/tmp" \
-        GenomicsDBImport \
-        --overwrite-existing-genomicsdb-workspace \
-        --genomicsdb-workspace-path ../Results/all/db \
-        -L ./exon_probe.GRCh38.gene.150bp.bed \
-        -V {gvcfs}'.format(per_mem = per_mem, gvcfs = gvcfs)
-    log = os.path.join(all_log_path, ".dbimport.log")
-    # pipeline.append("all", "dbimport", genomics_dbimport_cmd, log = log)
+    chrs  = ['chr' + str(i) for i in range(1, 23)]
+    chrs.append('chrY')
+    chrs.append('chrX')
+    for chr in chrs:
+        # CombineGVCFs
+        combine_gvcfs_cmd = 'gatk --java-options "-Xmx{per_mem}G -Djava.io.tmpdir=/tmp" \
+            CombineGVCFs \
+            -R /mnt/bioinfo/bundle/hg38/Homo_sapiens_assembly38.fasta \
+            -O ../Results/all/all.{chr}.g.vcf \
+            -L {chr} \
+            -V {gvcfs}'.format(per_mem = per_mem, gvcfs = gvcfs, chr = chr)
+        pipeline.append(chr, "combine_gvcfs", combine_gvcfs_cmd, 'all.{chr}.g.vcf'.format(chr = chr))
+        # GenotypeGVCFs
+        genotype_gvcfs_cmd = 'gatk --java-options "-Xmx{per_mem}G -Djava.io.tmpdir=/tmp" \
+            GenotypeGVCFs \
+            -R /mnt/bioinfo/bundle/hg38/Homo_sapiens_assembly38.fasta \
+            -V ../Results/all/all.{chr}.g.vcf \
+            -O ../Results/all/all.{chr}.vcf'.format(per_mem = per_mem, chr = chr)
+        pipeline.append(chr, "genotype_gvcfs", genotype_gvcfs_cmd, 'all.{}.vcf'.format(chr))
+        # GenomicsDBImport
+        genomics_dbimport_cmd = 'gatk --java-options "-Xmx{per_mem}G -Djava.io.tmpdir=/tmp" \
+            GenomicsDBImport \
+            -R /mnt/bioinfo/bundle/hg38/Homo_sapiens_assembly38.fasta \
+            --overwrite-existing-genomicsdb-workspace \
+            --genomicsdb-workspace-path ../Results/all/db/{chr} \
+            -L {chr} \
+            -V {gvcfs}'.format(per_mem = per_mem, gvcfs = gvcfs, chr = chr)
+        pipeline.append(chr, "dbimport", genomics_dbimport_cmd, 'db_{chr}'.format(chr = chr))
+        # GenotypeGVCFs
+        genotype_gvcfs_cmd2 = 'gatk --java-options "-Xmx{per_mem}G -Djava.io.tmpdir=/tmp" \
+            GenotypeGVCFs \
+            -R /mnt/bioinfo/bundle/hg38/Homo_sapiens_assembly38.fasta \
+            -V gendb://../Results/all/db/{chr} \
+            -O ../Results/all/all.{chr}.db.vcf'.format(per_mem = per_mem, chr = chr)
+        pipeline.append(chr, "genotype_gvcfs2", genotype_gvcfs_cmd2, 'all.{}.db.vcf'.format(chr))
 except KeyboardInterrupt:
     print("Ctrl+C pressed ,exiting")
     pipeline.terminate()
