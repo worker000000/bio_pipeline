@@ -156,7 +156,6 @@ def recal(ID, kind, data_path, tmp_path, target_path, rm = 0):
     pipeline.append(ID + kind, "haplotype_caller_exon", haplotype_caller_exon_cmd, ID + kind + ".exon.g.vcf", log = log, run_sync = True)
 
 
-
 def pon(IDnormal, normal_bam, pon_vcf):
     pon_cmd = 'gatk --java-options "-Xmx{per_mem}G -Djava.io.tmpdir=/tmp" \
                 Mutect2 \
@@ -246,22 +245,9 @@ try:
     chrs  = ['chr' + str(i) for i in range(1, 23)]
     chrs.append('chrY')
     chrs.append('chrX')
+    merge_vcfs  = []
+    merge_vcfs2 = []
     for chr in chrs:
-        # CombineGVCFs
-        combine_gvcfs_cmd = 'gatk --java-options "-Xmx{per_mem}G -Djava.io.tmpdir=/tmp" \
-            CombineGVCFs \
-            -R /mnt/bioinfo/bundle/hg38/Homo_sapiens_assembly38.fasta \
-            -O ../Results/all/all.{chr}.g.vcf \
-            -L {chr} \
-            -V {gvcfs}'.format(per_mem = per_mem, gvcfs = gvcfs, chr = chr)
-        pipeline.append(chr, "combine_gvcfs", combine_gvcfs_cmd, 'all.{chr}.g.vcf'.format(chr = chr))
-        # GenotypeGVCFs
-        genotype_gvcfs_cmd = 'gatk --java-options "-Xmx{per_mem}G -Djava.io.tmpdir=/tmp" \
-            GenotypeGVCFs \
-            -R /mnt/bioinfo/bundle/hg38/Homo_sapiens_assembly38.fasta \
-            -V ../Results/all/all.{chr}.g.vcf \
-            -O ../Results/all/all.{chr}.vcf'.format(per_mem = per_mem, chr = chr)
-        pipeline.append(chr, "genotype_gvcfs", genotype_gvcfs_cmd, 'all.{}.vcf'.format(chr))
         # GenomicsDBImport
         genomics_dbimport_cmd = 'gatk --java-options "-Xmx{per_mem}G -Djava.io.tmpdir=/tmp" \
             GenomicsDBImport \
@@ -272,12 +258,44 @@ try:
             -V {gvcfs}'.format(per_mem = per_mem, gvcfs = gvcfs, chr = chr)
         pipeline.append(chr, "dbimport", genomics_dbimport_cmd, 'db_{chr}'.format(chr = chr))
         # GenotypeGVCFs
-        genotype_gvcfs_cmd2 = 'gatk --java-options "-Xmx{per_mem}G -Djava.io.tmpdir=/tmp" \
+        genotype_gvcfs_cmd = 'gatk --java-options "-Xmx{per_mem}G -Djava.io.tmpdir=/tmp" \
             GenotypeGVCFs \
             -R /mnt/bioinfo/bundle/hg38/Homo_sapiens_assembly38.fasta \
             -V gendb://../Results/all/db/{chr} \
             -O ../Results/all/all.{chr}.db.vcf'.format(per_mem = per_mem, chr = chr)
-        pipeline.append(chr, "genotype_gvcfs2", genotype_gvcfs_cmd2, 'all.{}.db.vcf'.format(chr))
+        pipeline.append(chr, "genotype_gvcfs", genotype_gvcfs_cmd, 'all.{}.db.vcf'.format(chr))
+        merge_vcfs.append('../Results/all/all.{}.db.vcf'.format(chr))
+        # CombineGVCFs
+        combine_gvcfs_cmd = 'gatk --java-options "-Xmx{per_mem}G -Djava.io.tmpdir=/tmp" \
+            CombineGVCFs \
+            -R /mnt/bioinfo/bundle/hg38/Homo_sapiens_assembly38.fasta \
+            -O ../Results/all/all.{chr}.g.vcf \
+            -L {chr} \
+            -V {gvcfs}'.format(per_mem = per_mem, gvcfs = gvcfs, chr = chr)
+        pipeline.append(chr, "combine_gvcfs", combine_gvcfs_cmd, 'all.{chr}.g.vcf'.format(chr = chr))
+        # GenotypeGVCFs
+        genotype_gvcfs_cmd2 = 'gatk --java-options "-Xmx{per_mem}G -Djava.io.tmpdir=/tmp" \
+            GenotypeGVCFs \
+            -R /mnt/bioinfo/bundle/hg38/Homo_sapiens_assembly38.fasta \
+            -V ../Results/all/all.{chr}.g.vcf \
+            -O ../Results/all/all.{chr}.vcf'.format(per_mem = per_mem, chr = chr)
+        pipeline.append(chr, "genotype_gvcfs2", genotype_gvcfs_cmd2, 'all.{}.vcf'.format(chr))
+        merge_vcfs2.append('../Results/all/all.{}.vcf'.format(chr))
+    merge_vcfs  = " -I ".join(merge_vcfs)
+    merge_vcfs2 = " -I ".join(merge_vcfs2)
+    merge_cmd = 'gatk --java-options "-Xmx{per_mem}G -Djava.io.tmpdir=/tmp" \
+        MergeVcfs \
+        -I {merge_vcfs} \
+        -O ../Results/all/all.db.vcf'.format(per_mem = per_mem, merge_vcfs = merge_vcfs)
+    log = os.path.join(all_log_path, "all.merge_vcfs.log")
+    pipeline.append('all', 'merge_vcfs', merge_cmd, log = log)
+    merge_cmd2 = 'gatk --java-options "-Xmx{per_mem}G -Djava.io.tmpdir=/tmp" \
+        MergeVcfs \
+        -I {merge_vcfs2} \
+        -O ../Results/all/all.vcf'.format(per_mem = per_mem, merge_vcfs2 = merge_vcfs2)
+    log = os.path.join(all_log_path, "all.merge_vcfs2.log")
+    pipeline.append('all', 'merge_vcfs2', merge_cmd2, log = log)
+
 except KeyboardInterrupt:
     print("Ctrl+C pressed ,exiting")
     pipeline.terminate()
