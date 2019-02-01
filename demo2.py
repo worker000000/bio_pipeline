@@ -294,7 +294,55 @@ try:
         -I {merge_vcfs2} \
         -O ../Results/all/all.vcf'.format(per_mem = per_mem, merge_vcfs2 = merge_vcfs2)
     log = os.path.join(all_log_path, "all.merge_vcfs2.log")
-    pipeline.append('all', 'merge_vcfs2', merge_cmd2, log = log)
+    pipeline.append('all2', 'merge_vcfs2', merge_cmd2, log = log)
+    # vqsr snp
+    vqsr_snp_cmd = 'gatk --java-options "-Xmx{per_mem}G -Djava.io.tmpdir=/tmp" \
+        VariantRecalibrator \
+        -mode SNP \
+        -R /mnt/bioinfo/bundle/hg38/Homo_sapiens_assembly38.fasta \
+        -resource hapmap,known=false,training=true,truth=true,prior=15.0:/mnt/bioinfo/bundle/hg38/hapmap_3.3.hg38.vcf \
+        -resource omini,known=false,training=true,truth=false,prior=12.0:/mnt/bioinfo/bundle/hg38/1000G_omni2.5.hg38.vcf \
+        -resource 1000G,known=false,training=true,truth=false,prior=10.0:/mnt/bioinfo/bundle/hg38/1000G_phase1.snps.high_confidence.hg38.vcf \
+        -resource dbsnp,known=true,training=false,truth=false,prior=2.00:/mnt/bioinfo/bundle/hg38/dbsnp_146.hg38.vcf \
+        -an DP -an QD -an FS -an SOR -an ReadPosRankSum -an MQRankSum \
+        -tranche 100.0 -tranche 99.9 -tranche 99.0 -tranche 95.0 -tranche 90.0 \
+        --tranches-file ../Results/all/all.db.snps.tranches \
+        -V ../Results/all/all.db.vcf \
+        -O ../Results/all/all.db.snps.vqsr.recal'.format(per_mem = per_mem)
+        # --rscript-file ../Results/all/all.db.snps.plot.R \
+    pipeline.append('all', 'vqsr_snp', vqsr_snp_cmd)
+    apply_vqsr_snp_cmd = 'gatk --java-options "-Xmx{per_mem}G -Djava.io.tmpdir=/tmp" \
+        ApplyVQSR \
+        -mode SNP \
+        -R /mnt/bioinfo/bundle/hg38/Homo_sapiens_assembly38.fasta \
+        --recal-file ../Results/all/all.db.snps.vqsr.recal \
+        --tranches-file ../Results/all/all.db.snps.tranches \
+        -V ../Results/all/all.db.vcf \
+        -O ../Results/all/all.db.snps.vqsr.vcf'.format(per_mem = per_mem)
+    pipeline.append('all', 'apply_vqsr_snp', apply_vqsr_snp_cmd)
+    # vqsr indel
+    vqsr_indel_cmd = 'gatk --java-options "-Xmx{per_mem}G -Djava.io.tmpdir=/tmp" \
+        VariantRecalibrator \
+        -mode INDEL \
+        -R /mnt/bioinfo/bundle/hg38/Homo_sapiens_assembly38.fasta \
+        -resource mills,known=true,training=true,truth=true,prior=12.0:/mnt/bioinfo/bundle/hg38/Mills_and_1000G_gold_standard.indels.hg38.vcf \
+        -resource dbsnp,known=true,training=false,truth=false,prior=2.0:/mnt/bioinfo/bundle/hg38/dbsnp_146.hg38.vcf \
+        -an DP -an QD -an FS -an SOR -an ReadPosRankSum -an MQRankSum \
+        --max-gaussians 6 \
+        --tranches-file ../Results/all/all.db.indels.tranches \
+        -V ../Results/all/all.db.snps.vqsr.vcf \
+        -O ../Results/all/all.db.indels.vqsr.recal'.format(per_mem = per_mem)
+        # --rscript-file ../Results/all/all.db.indels.plot.R \
+    pipeline.append('all', 'vqsr_indel', vqsr_indel_cmd)
+    apply_vqsr_indel_cmd = 'gatk --java-options "-Xmx{per_mem}G -Djava.io.tmpdir=/tmp" \
+        ApplyVQSR \
+        -mode INDEL \
+        -R /mnt/bioinfo/bundle/hg38/Homo_sapiens_assembly38.fasta \
+        --recal-file ../Results/all/all.db.indels.vqsr.recal \
+        --tranches-file ../Results/all/all.db.indels.tranches \
+        -V ../Results/all/all.db.snps.vqsr.vcf \
+        -O ../Results/all/all.db.vqsr.vcf'.format(per_mem = per_mem)
+    pipeline.append('all', 'apply_vqsr_indel', apply_vqsr_indel_cmd)
 
 except KeyboardInterrupt:
     print("Ctrl+C pressed ,exiting")
