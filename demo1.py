@@ -41,7 +41,7 @@ mark_dup_cmd = mark_dup_template.format(ID, ID)
 pipeline.append(ID, "mark_dup", mark_dup_cmd, log = "demo/output/mark_dup.log")
 
 print_reads_template = "java -Xmx4g -Djava.io.tmpdir=/tmp \
-  -jar demo/tools/GATK/GenomeAnalysisTK-3.8-0.jar \
+    -jar demo/tools/GATK/GenomeAnalysisTK-3.8-0.jar \
     -T PrintReads \
     -R demo/genome/E.coli_K12_MG1655.fa \
     -I demo/output/{}.nodup.reorder.bwa_mem.bam \
@@ -51,11 +51,11 @@ print_reads_template = "java -Xmx4g -Djava.io.tmpdir=/tmp \
 print_reads_cmd = print_reads_template.format(ID, ID, ID)
 pipeline.append(ID, "print_reads", print_reads_cmd, log = "demo/output/print_reads.log")
 
-gatk_vcf_template = "/usr/bin/java -Xmx4g -Djava.io.tmpdir=/tmp \
-    -jar /mnt/bioinfo/GATK/GenomeAnalysisTK-3.8-0.jar \
+gatk_vcf_template = "java -Xmx4g -Djava.io.tmpdir=/tmp \
+    -jar demo/tools/GATK/GenomeAnalysisTK-3.8-0.jar \
     -T HaplotypeCaller \
     -R demo/genome/E.coli_K12_MG1655.fa \
-    -nct 4 \
+    -nct 2 \
     -I demo/output/{}.recal.bam \
     -o demo/output/{}.gatk.vcf"
 gatk_vcf_cmd = gatk_vcf_template.format(ID, ID)
