@@ -1,13 +1,45 @@
-# my work tools to run bioinfomatic pipeline
+# 多进程运行生信pipeline的一个python类
+## 示范
+请见 **demo.py**和**demo2.py**两个文件
+其中demo.py文件根据[GATK4.0和全基因组数据分析实践（上）](https://zhuanlan.zhihu.com/p/33891718)内容，
+用了gatk3和picard,直接可以用
+> python demo.py -t0 运行
+你可以在 `demo/output`文件夹下找到记录文件和结果
 
-please see the demo.py to have a basic understanding of pipeline
+demo2.py则是来自本人一个项目实战，近200个人肿瘤样本外显子mutect2分析，这里只是部分
 
+## 场景
+在[我的docker平台][https://github.com/leoatchina/jupyterlab_rstuido]上，
+即是以这个类为基础，在网页端直接不用nohup启动分析流程，然后除了偶然上去看看结果，做做清理工作，不需要时刻去往脚本里扔参数。
 
-# run
-`python3 demo.py` to see the commands
+## 起因
+自从配了一个新服务器，就有这样一个问题， 怎么样把机器高效地跑WES/WGS的pipeline。
+大家可能看到过很多用perl，shell跑pipeline的示范脚本。但是,一般来说示范脚本都是用一两个样本进行演示,而在实际工作中,
+常碰到要处理几十上百样本的情况,本人碰到过的情况是300多例.
 
-`python3 demo.py -t0` actually run
+在硬件不是计算瓶颈的情况下,需要充分地使用cpu/memory出运算结果用于分析.对于多个样本,多进程并行同时运算是容易想到的方法
 
-the record file is `demo/output/demo.csv`,  it records the time of each procedure
+perl本人一直不是很喜欢他的语法就没有深入研究过，shell 脚本多进程方法不直观,因此
 
+我用python的multiprocessing里的Pool进程池技术实现了多个样本并行跑, 后来又加入了流程控制，过程记录，内存/CPU分配等功能。
+
+## 思路
+1. 对于一组数据构建一个`pipeline`，`pipleine`的一个环节为一个`procedure`如`bwa`，`samtools`,
+  把所有的`procedure`在“读入`fq.gz`文件时，都先`计划`好 ,然后依次执行。
+2. 我用了python里的`OrderedDict`作为这个`计划`的主体,以`procedure`为`key`,`value`为运算命令`cmd`, 计算结果`target`, 记录文件`log`等
+3. 同时，用了一个`csv`文件作为记录下已跑流程结果和运算时间，在因为某些原因需要中断，重启后不需要从头再跑，直接运行原命令即可.
+4. 为了调试运行，有一个参数`test`，默认为1，在此状态下只输出运行代码而不实际运行
+
+## 使用
+以`wes`为例,一个样本可能有`bwa_mem`・`samtools sort`・`markdup`・`merge`・`bqsr`・`applybqsr`・`haplotypecaller`等步骤
+1. 用`记录文件`，`是否test`等初始化Pipeline类pipeline，并用本脚本里提供的函数获取系统`cpu`和`memory`
+2. 遍历文件夹，读取需要进行`vcf call`的样本，获得`ID`,在脚本内形成相应的运行`cmd`, 和`target` `log` `run_sync`等一起**append**到pipeline里
+3. 最终，run_pipeline
+4. 请仔细观察两个demo文件学习
+
+## TODO
+1. 在代码运行过程中，能按`ctrl+c`结束所有命令。现在能在docker里运行还好
+2. 解决好诸如要全部样本先算好，再统计所有样本的分布的依赖问题
+3. 能像`WDL` `snakemake`一样， 模板化运行脚本
+4. 利用消息队列，`中心化`运行
 
