@@ -1,9 +1,9 @@
 # 多进程运行生信pipeline的一个python类
 ## 示范
-请见 **demo.py**和**demo2.py**两个文件
-其中demo.py文件根据[GATK4.0和全基因组数据分析实践（上）](https://zhuanlan.zhihu.com/p/33891718)内容，
+请见 **demo1.py**和**demo2.py**两个文件
+其中demo1.py文件根据[GATK4.0和全基因组数据分析实践（上）](https://zhuanlan.zhihu.com/p/33891718)内容，
 用了gatk3和picard,直接可以用
-> python demo.py -t0 运行
+> python demo1.py -t0 运行
 你可以在 `demo/output`文件夹下找到记录文件和结果
 
 demo2.py则是来自本人一个项目实战，近200个人肿瘤样本外显子mutect2分析，这里只是部分
