@@ -9,7 +9,7 @@
 demo2.py则是来自本人一个项目实战，近200个人肿瘤样本外显子mutect2分析，这里只是部分
 
 ## 场景
-在[我的docker平台][https://github.com/leoatchina/jupyterlab_rstuido]上，
+在(我的docker平台)[https://github.com/leoatchina/jupyterlab_rstuido]上，
 即是以这个类为基础，在网页端直接不用nohup启动分析流程，然后除了偶然上去看看结果，做做清理工作，不需要时刻去往脚本里扔参数。
 
 ## 起因
