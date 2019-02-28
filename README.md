@@ -1,4 +1,4 @@
-# 多进程运行生信pipeline的一个python类
+# 多进程运行生信分析流程的一个python类
 ## 示范
 请见 **demo1.py**和**demo2.py**两个文件
 其中demo1.py文件根据[GATK4.0和全基因组数据分析实践（上）](https://zhuanlan.zhihu.com/p/33891718)内容，
