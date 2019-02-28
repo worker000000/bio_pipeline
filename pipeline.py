@@ -70,10 +70,6 @@ def check_md5infile(file_full, md5_file_full):
         return False
 
 
-def init_worker():
-    signal.signal(signal.SIGINT, signal.SIG_IGN)
-
-
 def return_cmd(cmd):
     try:
         if cmd:
@@ -104,6 +100,10 @@ def read_csv(csv_file, delimiter=","):
         return [i for i in csv_reader]
 
 
+def init_worker():
+    signal.signal(signal.SIGINT, signal.SIG_IGN)
+
+
 class Pipeline(object):
     ''' pipelines to run '''
     def __del__(self):
@@ -114,7 +114,7 @@ class Pipeline(object):
 
     def __init__(self, run_csv = None, sync_cnt = 2, test = 1):
         # run_array to record run status
-        # for a run_csv, may be there are different ids
+        # for a run_csv, the first column records diffrerent ids for samples
         self.run_csv   = run_csv
         self.run_array = {}
         self.test      = test
@@ -128,6 +128,7 @@ class Pipeline(object):
                 lines = read_csv(self.run_csv)
                 # skip header
                 lines = lines[1:]
+                # sometimes record time cover more than 1 cells, so combine them
                 for line in lines:
                     if len(line) > 6:
                         line[5] = ",".join(line[5:])
@@ -137,6 +138,7 @@ class Pipeline(object):
                     runned = "%s:%s:%s" % (ID, procedure, target)
                     self.run_array[runned] = "%s %s %s" % (start_time, end_time, cost_time)
             else:
+                # create record csv if not exists
                 os.system("echo 'ID,procedure,target,start_time,end_time,cost_time' > %s" % self.run_csv)
 
     def append(self, ID, procedure, cmd, target = None, log = None, run_sync = False, record_on_error = False):
@@ -171,6 +173,7 @@ class Pipeline(object):
             for each in pipeline:
                 print(each)
 
+    # run is staticmethod, it could not be contained in class Pipeline
     @staticmethod
     def run(ID, pipeline, test, run_csv):
         for step in pipeline:
@@ -193,7 +196,7 @@ class Pipeline(object):
                     if run_csv:
                         write_to_csv(run_csv, ID, procedure, target, start_time_reform, end_time_reform, cost_time_reform)
                     print("{}:{}, start at {}, fininshed at {}, cost {}".format(ID, procedure, start_time_reform, end_time_reform, cost_time_reform))
-            except subprocess.CalledProcessError as ex:
+            except subprocess.CalledProcessError:
                 end_time          = datetime.datetime.now()
                 cost_time_reform  = str(end_time - start_time)
                 start_time_reform = start_time.strftime("%Y-%m-%d %H:%M:%S")

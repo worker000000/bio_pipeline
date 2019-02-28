@@ -169,7 +169,7 @@ def pon(IDnormal, normal_bam, pon_vcf):
     pipeline.append(IDnormal, "pon", pon_cmd, log = log)
 
 
-def mutect2(IDnormal, normal_bam, IDtumor, tumor_bam, mutect2_vcf):
+def mutect2_vcf2maf(IDnormal, normal_bam, IDtumor, tumor_bam, mutect2_vcf, mutect2_maf):
     mutect2_cmd = 'gatk --java-options "-Xmx{per_mem}G -Djava.io.tmpdir=/tmp" \
                     Mutect2 \
                     -R /mnt/bioinfo/bundle/hg38/Homo_sapiens_assembly38.fasta \
@@ -191,6 +191,12 @@ def mutect2(IDnormal, normal_bam, IDtumor, tumor_bam, mutect2_vcf):
     log = os.path.join(all_log_path, "{}.{}.mutect2.log".format(IDnormal, IDtumor))
     # mutect shoud be run after all pons done
     pipeline.append(IDnormal + "-" + IDtumor, "mutect2_gnomad", mutect2_cmd, log = log)
+
+    vcf2maf_cmd = "vcf2maf.pl --input-vcf {mutect2_vcf} --output-maf {mutect2_maf}  \
+                    --ref-fasta /mnt/bioinfo/bundle/hg38/Homo_sapiens_assembly38.fasta \
+                    --tumor-id {IDtumor}  --normal-id {IDnormal}".format(mutect2_vcf = mutect2_vcf, mutect2_maf = mutect2_maf, IDnormal = IDnormal, IDtumor = IDtumor)
+    log = os.path.join(all_log_path, "{}.{}.maf.log".format(IDnormal, IDtumor))
+    pipeline.append(IDnormal + "-" + IDtumor, "vcf2maf", vcf2maf_cmd, log = log)
 
 
 # wesfunction
@@ -226,9 +232,10 @@ try:
         target_path       = os.path.join(all_results_path, ID)
         wes(ID, normal_path, tumor_path, normal_clean_path, tumor_clean_path, normal_tmp_path, tumor_tmp_path, target_path, rm = params.rm)
         # mutect shoud be run after all pons done, and merge
-        mutect2(ID+"normal", os.path.join(target_path, "{}.recal.bam".format(ID + "normal")),
-                ID+"tumor", os.path.join(target_path, "{}.recal.bam".format(ID + "tumor")),
-                os.path.join(target_path, "{}.mutect2.vcf".format(ID)))
+        mutect2_vcf2maf(ID+"normal", os.path.join(target_path, "{}.recal.bam".format(ID + "normal")),
+            ID+"tumor", os.path.join(target_path, "{}.recal.bam".format(ID + "tumor")),
+            os.path.join(target_path, "{}.mutect2.vcf".format(ID)),
+            os.path.join(target_path, "{}.maf".format(ID)))
         gvcfs.append(os.path.join(target_path, ID+'normal.exon.g.vcf'))
         pons.append(os.path.join(target_path, "{}.pon.vcf.gz".format(ID)))
     # merge pon
