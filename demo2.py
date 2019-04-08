@@ -71,8 +71,8 @@ def recal(ID, kind, data_path, tmp_path, target_path, rm = 0):
         RG = '@RG\\tID:%s\\tPL:illumina\\tSM:%s' % (ID + kind, ID + kind)
         bwa_mem_template = 'bwa mem -t {per_core} -M -R \"{RG}\" \
                             /mnt/bioinfo/bundle/hg38/Homo_sapiens_assembly38.fasta \
-                            {fq1} {fq2} | samtools sort -@ 2 -m 3G -o {tmp_path}/{bam_name}.sort.bam -'
-        bwa_mem_cmd = bwa_mem_template.format(per_core = per_core - 2, RG = RG, fq1 = fq1, fq2 = fq2, tmp_path = tmp_path, bam_name = bam_name)
+                            {fq1} {fq2} | samtools sort -@ 1 -m 4G -o {tmp_path}/{bam_name}.sort.bam -'
+        bwa_mem_cmd = bwa_mem_template.format(per_core = per_core - 1, RG = RG, fq1 = fq1, fq2 = fq2, tmp_path = tmp_path, bam_name = bam_name)
         log = os.path.join(tmp_path, bam_name + ".bwa_mem.log")
         pipeline.append(ID + kind, "bwa_mem_sort", bwa_mem_cmd, "{}.sort.bam".format(bam_name), log = log, run_sync = True)
         # sort
