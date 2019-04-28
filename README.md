@@ -9,7 +9,7 @@
 demo2.py为肿瘤样本外显子mutect2分析的部分代码，需要安装`bwa`, `samtools`等
 
 ## 场景
-在[我的docker平台](https://github.com/leoatchina/jupyterlab_rstuido)上，
+在[我的docker平台](https://github.com/leoatchina/jupyterlab_rstudio)上，
 即是以这个类为基础，在网页端直接不用nohup启动分析流程，不需要时刻去往脚本里扔参数，会自动记录log，写入运行时间和步骤。
 
 ## 起因
