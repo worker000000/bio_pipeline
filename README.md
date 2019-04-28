@@ -6,7 +6,7 @@
 > python demo1.py -t0 运行
 你可以在 `demo/output`文件夹下找到记录文件和结果
 
-demo2.py则是来自本人一个项目实战，近200个人肿瘤样本外显子mutect2分析，这里只是部分
+demo2.py为肿瘤样本外显子mutect2分析的部分代码，需要安装`bwa`, `samtools`等
 
 ## 场景
 在[我的docker平台](https://github.com/leoatchina/jupyterlab_rstuido)上，
